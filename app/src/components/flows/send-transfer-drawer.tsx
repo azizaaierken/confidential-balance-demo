@@ -1,0 +1,276 @@
+"use client";
+
+import { useState } from "react";
+import { Drawer } from "@/components/ui/drawer";
+import { Button } from "@/components/ui/button";
+import { ProgressTracker, TrackerStep } from "@/components/ui/progress-tracker";
+import { PrivacyBadge, WarningNote, StatusBadge } from "@/components/ui/badge";
+import { EvidenceDisclosure, EvidenceRow } from "@/components/ui/evidence-disclosure";
+import { useDemoStore } from "@/store/demo-store";
+import { MINT, PERSONAS } from "@/lib/mock-data";
+import { ActivityEntry, FailureStage } from "@/lib/types";
+import { formatAmount, shortenAddress } from "@/lib/format";
+import { ShieldAlert } from "lucide-react";
+import { useCopy } from "@/lib/i18n/use-copy";
+import { stageLabel } from "@/lib/i18n/helpers";
+import { classifyFailure } from "@/lib/failure";
+import { SolscanLink } from "@/components/ui/solscan-link";
+import { EvidenceSteps } from "@/components/ui/evidence-steps";
+
+type FlowStep = "review" | "signing" | "progress" | "result";
+
+const STAGE_TO_STEP_INDEX: Record<FailureStage, number> = {
+  proposal_parsing: 0,
+  policy_checks: 0,
+  proof_generation: 0,
+  wallet_approval: 1,
+  submission: 2,
+  confirmation: 3,
+};
+
+export function SendTransferDrawer({
+  open,
+  onClose,
+  fromAccountId,
+}: {
+  open: boolean;
+  onClose: () => void;
+  fromAccountId: string;
+}) {
+  const c = useCopy();
+  const balances = useDemoStore((s) => s.balances);
+  const confidentialTransfer = useDemoStore((s) => s.confidentialTransfer);
+  const connectedWallet = useDemoStore((s) => s.connectedWalletAddress);
+
+  const STEPS: TrackerStep[] = [
+    { key: "proof", label: c.sendTransfer.stepProof },
+    { key: "wallet", label: c.sendTransfer.stepWallet },
+    { key: "submitted", label: c.sendTransfer.stepSubmitted },
+    { key: "confirmed", label: c.sendTransfer.stepConfirmed },
+  ];
+
+  const recipients = PERSONAS.filter((p) => p.id !== fromAccountId);
+  const [toId, setToId] = useState(recipients[0]?.id ?? "");
+  const [amount, setAmount] = useState("");
+  const [step, setStep] = useState<FlowStep>("review");
+  const [trackerIndex, setTrackerIndex] = useState(0);
+  const [result, setResult] = useState<ActivityEntry | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [failureStage, setFailureStage] = useState<FailureStage | null>(null);
+
+  const fromPersona = PERSONAS.find((p) => p.id === fromAccountId);
+  const available = balances[fromAccountId]?.confidentialAvailable.decrypted ?? 0;
+
+  const numericAmount = parseFloat(amount) || 0;
+  const preflightInsufficient = numericAmount > available;
+
+  function handleClose() {
+    setStep("review");
+    setAmount("");
+    setTrackerIndex(0);
+    setResult(null);
+    setError(null);
+    setFailureStage(null);
+    setToId(recipients[0]?.id ?? "");
+    onClose();
+  }
+
+  function startSigning() {
+    setStep("signing");
+  }
+
+  async function approveInWallet() {
+    setStep("progress");
+    setTrackerIndex(0);
+
+    // Real proof generation + submission takes several real devnet
+    // round-trips (multiple transactions) — advance through the first three
+    // stages on a fixed cadence while the request is in flight, then jump to
+    // "Confirmed" only once the real result actually lands.
+    let i = 0;
+    const ticker = setInterval(() => {
+      if (i < STEPS.length - 1) {
+        i += 1;
+        setTrackerIndex(i);
+      }
+    }, 1200);
+
+    try {
+      const entry = await confidentialTransfer(fromAccountId, toId, numericAmount);
+      clearInterval(ticker);
+      setTrackerIndex(STEPS.length);
+      setResult(entry);
+      setStep("result");
+    } catch (e) {
+      clearInterval(ticker);
+      const message = e instanceof Error ? e.message : String(e);
+      const stage = classifyFailure(message);
+      setTrackerIndex(STAGE_TO_STEP_INDEX[stage]);
+      setFailureStage(stage);
+      setError(message);
+      setStep("result");
+    }
+  }
+
+  const footer =
+    step === "review" ? (
+      <div className="flex justify-end gap-3">
+        <Button variant="secondary" onClick={handleClose}>
+          {c.common.cancel}
+        </Button>
+        <Button
+          disabled={numericAmount <= 0 || preflightInsufficient || !toId}
+          onClick={startSigning}
+        >
+          {c.sendTransfer.reviewAndSign}
+        </Button>
+      </div>
+    ) : step === "signing" ? (
+      <div className="flex justify-end gap-3">
+        <Button variant="secondary" onClick={() => setStep("review")}>
+          {c.common.back}
+        </Button>
+        <Button onClick={approveInWallet}>{c.sendTransfer.approveInWallet}</Button>
+      </div>
+    ) : step === "result" ? (
+      <div className="flex justify-end">
+        <Button onClick={handleClose}>{c.common.done}</Button>
+      </div>
+    ) : undefined;
+
+  return (
+    <Drawer
+      open={open}
+      onClose={handleClose}
+      title={c.sendTransfer.title}
+      subtitle={`${MINT.symbol} · ${MINT.cluster}`}
+      footer={footer}
+    >
+      {step === "review" && (
+        <div className="flex flex-col gap-5">
+          <PrivacyBadge variant="demo-simulation" />
+
+          <div className="grid grid-cols-2 gap-3 rounded-xl border border-border-subtle p-4 text-sm">
+            <div>
+              <p className="text-ink-500">{c.sendTransfer.network}</p>
+              <p className="font-medium text-ink-900">{MINT.cluster}</p>
+            </div>
+            <div>
+              <p className="text-ink-500">{c.sendTransfer.assetMint}</p>
+              <p className="font-medium text-ink-900">
+                {MINT.symbol} · {shortenAddress(MINT.address)}
+              </p>
+            </div>
+            <div>
+              <p className="text-ink-500">{c.sendTransfer.sender}</p>
+              <p className="font-medium text-ink-900">{fromPersona?.name}</p>
+            </div>
+            <div>
+              <p className="text-ink-500">{c.sendTransfer.feePayer}</p>
+              <p className="font-medium text-ink-900">
+                {fromPersona?.name} {c.sendTransfer.feePayerSuffix}
+              </p>
+            </div>
+          </div>
+
+          <label className="flex flex-col gap-1.5 text-sm font-medium text-ink-700">
+            {c.sendTransfer.receiver}
+            <select
+              value={toId}
+              onChange={(e) => setToId(e.target.value)}
+              className="rounded-lg border border-border-strong px-3 py-2.5 text-sm text-ink-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600"
+            >
+              {recipients.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name} · {shortenAddress(p.address)}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="flex flex-col gap-1.5 text-sm font-medium text-ink-700">
+            {MINT.symbol} {c.sendTransfer.amountLabel}
+            <input
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              inputMode="decimal"
+              placeholder="0.00"
+              className="rounded-lg border border-border-strong px-3 py-2.5 text-sm text-ink-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600"
+            />
+            <span className="text-xs font-normal text-ink-500">
+              {c.sendTransfer.availableBalance(formatAmount(available), MINT.symbol)}
+            </span>
+          </label>
+
+          <div className="rounded-xl border border-border-subtle bg-canvas/60 p-4 text-sm">
+            <p className="mb-1 font-medium text-ink-700">{c.sendTransfer.simulationTitle}</p>
+            {numericAmount <= 0 ? (
+              <p className="text-ink-500">{c.sendTransfer.simulationEmpty}</p>
+            ) : preflightInsufficient ? (
+              <p className="text-danger-600">{c.sendTransfer.simulationInsufficient}</p>
+            ) : (
+              <p className="text-success-600">{c.sendTransfer.simulationSuccess}</p>
+            )}
+          </div>
+
+          <WarningNote>{c.sendTransfer.addressWarning}</WarningNote>
+        </div>
+      )}
+
+      {step === "signing" && (
+        <div className="flex flex-col items-center gap-4 py-10 text-center">
+          <div className="rounded-full bg-ink-900/5 p-4">
+            <ShieldAlert size={28} className="text-ink-500" />
+          </div>
+          <div>
+            <p className="text-base font-semibold text-ink-900">{c.sendTransfer.waitingWalletTitle}</p>
+            <p className="mt-1 text-sm text-ink-500">{c.sendTransfer.waitingWalletBody}</p>
+          </div>
+          <p className="font-mono text-xs text-ink-400">{shortenAddress(connectedWallet)}</p>
+        </div>
+      )}
+
+      {step === "progress" && (
+        <div className="py-4">
+          <ProgressTracker steps={STEPS} currentIndex={trackerIndex} failedAtIndex={null} />
+        </div>
+      )}
+
+      {step === "result" && error && (
+        <div className="flex flex-col gap-5">
+          <ProgressTracker steps={STEPS} currentIndex={trackerIndex} failedAtIndex={trackerIndex} />
+          <div className="rounded-xl border border-danger-100 bg-danger-50 p-4 text-sm text-danger-600">
+            <p className="font-medium">
+              {c.sendTransfer.resultFailedAt(failureStage ? stageLabel(c, failureStage) : "")}
+            </p>
+            <p className="mt-1">{error}</p>
+          </div>
+        </div>
+      )}
+
+      {step === "result" && result && (
+        <div className="flex flex-col gap-5">
+          <StatusBadge status={result.status} />
+          <div className="rounded-xl border border-success-100 bg-success-50 p-4 text-sm text-success-600">
+            {c.sendTransfer.resultConfirmed}
+          </div>
+
+          <EvidenceDisclosure label={c.sendTransfer.evidenceTitle} defaultOpen>
+            <EvidenceRow label="Signature" value={result.signature} />
+            <EvidenceRow label="Program activity" value={result.programActivity.join(", ")} />
+            {result.confidential && (
+              <EvidenceRow label="Ciphertext" value={result.confidential.ciphertext} />
+            )}
+            {result.proofAccountRef && (
+              <EvidenceRow label="Proof account" value={result.proofAccountRef} />
+            )}
+          </EvidenceDisclosure>
+
+          <EvidenceSteps steps={result.steps} />
+
+          <SolscanLink signature={result.signature} />
+        </div>
+      )}
+    </Drawer>
+  );
+}
