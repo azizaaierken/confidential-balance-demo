@@ -61,6 +61,16 @@ activity/disclosure log under `rust-service/data/`. Both are gitignored
 runtime state; delete them to start over with a fresh mint and fresh
 personas.
 
+Bootstrap tries to airdrop devnet SOL to the payer, but the public faucet is
+rate-limited and frequently refuses. If it fails, fund the payer address it
+prints from any wallet that already holds devnet SOL and re-run bootstrap:
+
+```bash
+solana transfer --url devnet --allow-unfunded-recipient <payer address> 2
+```
+
+or use [faucet.solana.com](https://faucet.solana.com).
+
 Configuration is by environment variable; see
 [`rust-service/.env.example`](./rust-service/.env.example) for the full list.
 The public devnet RPC endpoint is rate-limited, so a dedicated devnet URL in

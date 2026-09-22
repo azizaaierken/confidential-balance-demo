@@ -135,12 +135,32 @@ pub fn load_or_bootstrap() -> CtResult<Env> {
     })
 }
 
+/// Make sure the payer can cover bootstrap and a good run of demo
+/// operations. Tries a devnet airdrop first, but the public faucet is
+/// heavily rate-limited and often refuses outright, so the failure message
+/// spells out the reliable alternative: a transfer from any wallet that
+/// already holds devnet SOL.
 fn ensure_payer_funded(rpc: &RpcClient, payer: &Keypair) -> CtResult<()> {
     let lamports = rpc.get_balance(&payer.pubkey())?;
     if lamports >= 200_000_000 {
         return Ok(());
     }
-    let sig = rpc.request_airdrop(&payer.pubkey(), 1_000_000_000)?;
+    let manual_hint = format!(
+        "fund it from a wallet that already has devnet SOL, e.g. \
+         `solana transfer --url devnet --allow-unfunded-recipient {} 2`, \
+         or use https://faucet.solana.com, then re-run bootstrap",
+        payer.pubkey()
+    );
+    let sig = match rpc.request_airdrop(&payer.pubkey(), 1_000_000_000) {
+        Ok(sig) => sig,
+        Err(e) => {
+            return Err(format!(
+                "airdrop to payer {} was refused ({e}); {manual_hint}",
+                payer.pubkey()
+            )
+            .into())
+        }
+    };
     for _ in 0..30 {
         if rpc.confirm_transaction(&sig).unwrap_or(false) {
             return Ok(());
@@ -148,10 +168,8 @@ fn ensure_payer_funded(rpc: &RpcClient, payer: &Keypair) -> CtResult<()> {
         std::thread::sleep(std::time::Duration::from_millis(1000));
     }
     Err(format!(
-        "airdrop to payer {} did not confirm in time — fund it manually: solana airdrop 2 {} --url {}",
-        payer.pubkey(),
-        payer.pubkey(),
-        rpc.url()
+        "airdrop to payer {} did not confirm in time; {manual_hint}",
+        payer.pubkey()
     )
     .into())
 }
