@@ -4,15 +4,14 @@
 //! it doesn't exist yet, and configure both personas' token accounts for
 //! confidential transfers if they aren't already.
 
+use crate::ata::{
+    create_associated_token_account_idempotent, get_associated_token_address_with_program_id,
+};
 use crate::{keys, mint, types::CtResult};
 use solana_client::rpc_client::RpcClient;
 use solana_commitment_config::CommitmentConfig;
 use solana_sdk::signature::{Keypair, Signer};
 use solana_zk_sdk::encryption::elgamal::ElGamalKeypair;
-use spl_associated_token_account::{
-    get_associated_token_address_with_program_id,
-    instruction::create_associated_token_account_idempotent,
-};
 
 pub const MINT_DECIMALS: u8 = 2;
 
@@ -58,9 +57,12 @@ pub fn set_active_auditor_generation(gen: u32) -> CtResult<()> {
     Ok(())
 }
 
-pub fn load_auditor_generation(gen: u32, mint: &solana_sdk::pubkey::Pubkey) -> CtResult<(Keypair, ElGamalKeypair)> {
+pub fn load_auditor_generation(
+    gen: u32,
+    mint: &solana_sdk::pubkey::Pubkey,
+) -> CtResult<(Keypair, ElGamalKeypair)> {
     let authority = keys::load_or_generate(&format!("auditor-gen-{gen}"))?;
-    let elgamal = ElGamalKeypair::new_from_signer(&authority, &mint.to_bytes())
+    let elgamal = ElGamalKeypair::new_from_signer_legacy(&authority, &mint.to_bytes())
         .map_err(|e| format!("derive auditor ElGamal keypair: {e}"))?;
     Ok((authority, elgamal))
 }

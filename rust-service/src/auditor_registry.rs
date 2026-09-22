@@ -79,12 +79,7 @@ impl AuditorRegistry {
     }
 
     /// Retire every currently-active generation and add the new one.
-    pub fn rotate(
-        &self,
-        new_generation: u32,
-        elgamal_pubkey: String,
-        now: i64,
-    ) -> Result<()> {
+    pub fn rotate(&self, new_generation: u32, elgamal_pubkey: String, now: i64) -> Result<()> {
         let mut entries = self.entries.write().unwrap();
         for e in entries.iter_mut() {
             if e.status == "active" {

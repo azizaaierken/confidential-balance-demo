@@ -86,10 +86,22 @@ impl TransferOutcome {
     }
 }
 
-/// Result of a withdraw: every transaction (labeled). Withdraw runs several
-/// real transactions (equality-proof account, range-proof staging, the
-/// withdraw instruction itself, then closing each proof account) — this
-/// captures all of them, not just the primary withdraw signature.
+/// What the cluster said when asked to simulate a transfer without submitting
+/// it — the node's own verdict on the real transaction, not a local guess.
+/// `fee_lamports` is `None` only when the node declined the fee lookup; the
+/// simulation itself still stands.
+#[derive(Clone, Debug)]
+pub struct TransferSimulation {
+    pub success: bool,
+    pub error: Option<String>,
+    pub logs: Vec<String>,
+    pub units_consumed: Option<u64>,
+    pub fee_lamports: Option<u64>,
+}
+
+/// Result of a withdraw: the (one, V1-transaction) submitted signature,
+/// labeled — kept as a `Vec` for parity with `TransferOutcome`/older
+/// multi-transaction activity entries still present in the activity log.
 #[derive(Clone, Debug)]
 pub struct WithdrawOutcome {
     pub steps: Vec<LabeledSignature>,
@@ -99,7 +111,7 @@ impl WithdrawOutcome {
     pub fn withdraw_signature(&self) -> Option<&str> {
         self.steps
             .iter()
-            .find(|s| s.label == "submit_withdraw")
+            .find(|s| s.label == "submit_withdraw" || s.label == "submit_withdraw_v1")
             .map(|s| s.signature.as_str())
     }
 }

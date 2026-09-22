@@ -3,14 +3,20 @@
 //! view permissions (owner-only vs public-observer) are enforced entirely by
 //! the frontend, exactly as they are today against simulated data.
 
+use crate::ata::get_associated_token_address_with_program_id;
 use crate::types::CtResult;
 use solana_client::rpc_client::RpcClient;
 use solana_sdk::signature::{Keypair, Signer};
-use solana_zk_sdk::encryption::{auth_encryption::AeCiphertext, auth_encryption::AeKey, elgamal::ElGamalKeypair, elgamal::ElGamalCiphertext};
+use solana_zk_sdk::encryption::{
+    auth_encryption::AeCiphertext, auth_encryption::AeKey, elgamal::ElGamalCiphertext,
+    elgamal::ElGamalKeypair,
+};
 use solana_zk_sdk_pod::encryption::elgamal::PodElGamalCiphertext as PodElGamalCiphertextV6;
-use spl_associated_token_account::get_associated_token_address_with_program_id;
 use spl_token_2022::{
-    extension::{confidential_transfer::ConfidentialTransferAccount, BaseStateWithExtensions, StateWithExtensions},
+    extension::{
+        confidential_transfer::ConfidentialTransferAccount, BaseStateWithExtensions,
+        StateWithExtensions,
+    },
     state::Account as TokenAccount,
 };
 
@@ -55,9 +61,9 @@ pub fn read_account_view(
     let ct_ext = acc.get_extension::<ConfidentialTransferAccount>().ok();
     let (pending, available, available_fp, pending_fp) = match ct_ext {
         Some(ext) => {
-            let elgamal = ElGamalKeypair::new_from_signer(owner, &token_account.to_bytes())
+            let elgamal = ElGamalKeypair::new_from_signer_legacy(owner, &token_account.to_bytes())
                 .map_err(|e| format!("derive ElGamal keypair: {e}"))?;
-            let aes = AeKey::new_from_signer(owner, &token_account.to_bytes())
+            let aes = AeKey::new_from_signer_legacy(owner, &token_account.to_bytes())
                 .map_err(|e| format!("derive AES key: {e}"))?;
 
             let pending_lo_v6 = PodElGamalCiphertextV6(
@@ -83,8 +89,8 @@ pub fn read_account_view(
             let avail_aes_bytes: [u8; 36] = bytemuck::bytes_of(&ext.decryptable_available_balance)
                 .try_into()
                 .map_err(|_| "decryptable_available_balance size")?;
-            let avail_aes = AeCiphertext::from_bytes(&avail_aes_bytes)
-                .ok_or("decode AeCiphertext")?;
+            let avail_aes =
+                AeCiphertext::from_bytes(&avail_aes_bytes).ok_or("decode AeCiphertext")?;
             let available = aes.decrypt(&avail_aes).unwrap_or(0);
 
             let available_fp = fingerprint(bytemuck::bytes_of(&ext.available_balance));

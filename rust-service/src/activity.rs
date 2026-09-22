@@ -23,18 +23,20 @@ pub struct ActivityEntry {
     pub kind: String, // "mint" | "deposit" | "withdraw" | "confidential_transfer" | "apply_pending"
     pub from_account_id: String,
     pub to_account_id: String,
-    pub status: String, // "confirmed" | "failed"
+    pub status: String,  // "confirmed" | "failed"
     pub privacy: String, // "public" | "confidential"
     pub timestamp: i64,
     pub signature: String,
     pub signatures: Vec<String>,
     // Technical evidence: what each real transaction in this operation
     // actually did. Solscan only reliably decodes the Token-2022 instruction
-    // itself — the separate ZK ElGamal Proof program instructions (context
-    // state create/verify/close) that make up the rest of a confidential
-    // transfer or withdraw show up there as "Unknown: Unknown" (confirmed by
-    // hand against a real transaction). This is our own record of what each
-    // one was for, since only this service actually knows.
+    // itself — the separate ZK ElGamal Proof program instructions riding
+    // alongside it (proof verification, inline in the same V1 transaction as
+    // of the transfer/withdraw rewrite; older entries may instead carry
+    // several transactions' worth of context-state create/verify/close
+    // steps) show up there as "Unknown: Unknown" (confirmed by hand against
+    // a real transaction). This is our own record of what each one was for,
+    // since only this service actually knows.
     #[serde(default)]
     pub steps: Vec<LabeledSignature>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -45,10 +47,35 @@ pub struct ActivityEntry {
     pub auditor_ciphertext_lo_hex: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub auditor_ciphertext_hi_hex: Option<String>,
+    // Persisted ground truth once an auditor actually runs `/auditor/disclose`
+    // (see `set_disclosed_amount`) — but what a given `/state` response
+    // actually carries here is redacted per-request in server.rs's
+    // `read_state`: stripped back to `None` unless the caller holds an
+    // auditor token. The Audit Console reads this field, and only this
+    // field, to mean "an auditor disclosed this" — it must never also carry
+    // party-visibility (see `party_visible_amount_ui` below), or the console
+    // would show an amount as "disclosed" that no auditor ever disclosed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub disclosed_amount_ui: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub origin_agent_proposal_id: Option<String>,
+    // The real amount for a confidential_transfer, known to the service at
+    // execution time (it's what was requested) — never serialized as-is (see
+    // server.rs's redaction pass, which reads this to populate
+    // `party_visible_amount_ui` below and always clears this field itself).
+    // Its two parties always know their own transfer's amount in the real
+    // protocol, independent of any auditor disclosure.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub party_amount_ui: Option<f64>,
+    // Per-request redacted view of `party_amount_ui` above: set only when
+    // the caller's session holds an owner token for one of this transfer's
+    // own two parties, regardless of auditor status. Kept as a field
+    // distinct from `disclosed_amount_ui` on purpose — the account-detail
+    // page (a party looking at their own history) reads this one; the Audit
+    // Console must never read it, since a party seeing their own transfer
+    // is not the same thing as an auditor disclosing it.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub party_visible_amount_ui: Option<f64>,
 }
 
 pub struct ActivityLog {
@@ -59,7 +86,8 @@ pub struct ActivityLog {
 impl ActivityLog {
     pub fn load_or_create(path: PathBuf) -> Result<Self> {
         if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir).with_context(|| format!("create dir {}", dir.display()))?;
+            std::fs::create_dir_all(dir)
+                .with_context(|| format!("create dir {}", dir.display()))?;
         }
         let entries = if path.exists() {
             let raw = std::fs::read_to_string(&path)
@@ -87,7 +115,12 @@ impl ActivityLog {
     }
 
     pub fn find(&self, id: &str) -> Option<ActivityEntry> {
-        self.entries.read().unwrap().iter().find(|e| e.id == id).cloned()
+        self.entries
+            .read()
+            .unwrap()
+            .iter()
+            .find(|e| e.id == id)
+            .cloned()
     }
 
     /// Update one entry's `disclosed_amount_ui` in place (recording a

@@ -19,8 +19,7 @@ pub fn keys_dir() -> PathBuf {
 /// new one if the file doesn't exist yet.
 pub fn load_or_generate(name: &str) -> Result<Keypair> {
     let dir = keys_dir();
-    std::fs::create_dir_all(&dir)
-        .with_context(|| format!("create keys dir {}", dir.display()))?;
+    std::fs::create_dir_all(&dir).with_context(|| format!("create keys dir {}", dir.display()))?;
     let path = dir.join(format!("{name}.json"));
     load_or_generate_at(&path)
 }

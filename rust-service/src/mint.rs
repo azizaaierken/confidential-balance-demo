@@ -3,6 +3,7 @@
 //!
 //! Adapted from solana-foundation/Confidential-Balances-Sample's demo-server.
 
+use crate::ata::get_associated_token_address_with_program_id;
 use crate::types::*;
 use solana_client::rpc_client::RpcClient;
 use solana_sdk::{
@@ -12,8 +13,7 @@ use solana_sdk::{
 };
 use solana_system_interface::instruction as system_instruction;
 use solana_zk_sdk::encryption::elgamal::ElGamalKeypair;
-use solana_zk_sdk_pod::encryption::elgamal::PodElGamalPubkey as PodElGamalPubkeyV6;
-use spl_associated_token_account::get_associated_token_address_with_program_id;
+use solana_zk_sdk_pod::encryption::elgamal::PodElGamalPubkey;
 use spl_token_2022::{
     extension::{
         confidential_transfer::{
@@ -26,15 +26,11 @@ use spl_token_2022::{
         BaseStateWithExtensions, ExtensionType, StateWithExtensions,
     },
     instruction::{initialize_mint as initialize_mint_base, mint_to},
-    solana_zk_sdk::encryption::pod::elgamal::PodElGamalPubkey as PodElGamalPubkeyLegacy,
     state::{Account as TokenAccount, Mint},
 };
 
-/// 6.0.1 ElGamal pubkey -> the legacy 4.0-shaped POD type spl-token-2022's
-/// instruction builders expect. Wire format is identical (32 bytes).
-pub fn to_legacy_pubkey(kp: &ElGamalKeypair) -> PodElGamalPubkeyLegacy {
-    let v6: PodElGamalPubkeyV6 = (*kp.pubkey()).into();
-    PodElGamalPubkeyLegacy::from(v6.0)
+pub fn to_legacy_pubkey(kp: &ElGamalKeypair) -> PodElGamalPubkey {
+    (*kp.pubkey()).into()
 }
 
 pub fn mint_exists(rpc: &RpcClient, mint: &Pubkey) -> CtResult<bool> {
@@ -69,8 +65,9 @@ pub async fn create_confidential_mint(
     decimals: u8,
     auditor_elgamal: &ElGamalKeypair,
 ) -> SigResult {
-    let space =
-        ExtensionType::try_calculate_account_len::<Mint>(&[ExtensionType::ConfidentialTransferMint])?;
+    let space = ExtensionType::try_calculate_account_len::<Mint>(&[
+        ExtensionType::ConfidentialTransferMint,
+    ])?;
     let rent = client.get_minimum_balance_for_rent_exemption(space)?;
     let auditor_pod = to_legacy_pubkey(auditor_elgamal);
 
@@ -175,7 +172,7 @@ pub fn read_total_supply(client: &RpcClient, mint: &Pubkey) -> CtResult<u64> {
 pub fn read_auditor_pubkey_legacy(
     client: &RpcClient,
     mint: &Pubkey,
-) -> CtResult<Option<PodElGamalPubkeyLegacy>> {
+) -> CtResult<Option<PodElGamalPubkey>> {
     let data = client.get_account(mint)?;
     let acc = StateWithExtensions::<Mint>::unpack(&data.data)?;
     let ext = acc.get_extension::<ConfidentialTransferMint>()?;

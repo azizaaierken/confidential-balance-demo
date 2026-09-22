@@ -4,10 +4,10 @@
 //! hide deposit/withdrawal amounts (they remain plaintext), only confidential
 //! balances and confidential-to-confidential transfer amounts.
 
+use crate::ata::get_associated_token_address_with_program_id;
 use crate::types::*;
 use solana_client::rpc_client::RpcClient;
 use solana_sdk::{signature::Signer, transaction::Transaction};
-use spl_associated_token_account::get_associated_token_address_with_program_id;
 use spl_token_2022::extension::confidential_transfer::instruction::deposit;
 
 pub async fn deposit_to_confidential(

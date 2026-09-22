@@ -10,8 +10,7 @@
 
 use crate::types::*;
 use solana_zk_sdk::encryption::elgamal::{ElGamalCiphertext, ElGamalKeypair};
-use solana_zk_sdk_pod::encryption::elgamal::PodElGamalCiphertext as PodElGamalCiphertextV6;
-use spl_token_2022::solana_zk_sdk::encryption::pod::elgamal::PodElGamalCiphertext as PodElGamalCiphertextLegacy;
+use solana_zk_sdk_pod::encryption::elgamal::PodElGamalCiphertext;
 
 pub fn decrypt_auditor_amount(
     lo_hex: &str,
@@ -29,14 +28,8 @@ pub fn decrypt_auditor_amount(
         .try_into()
         .map_err(|_| "auditor hi ciphertext: expected 64 bytes")?;
 
-    let lo_legacy = PodElGamalCiphertextLegacy::from(lo_arr);
-    let hi_legacy = PodElGamalCiphertextLegacy::from(hi_arr);
-
-    let lo_v6 = PodElGamalCiphertextV6(bytemuck::bytes_of(&lo_legacy).try_into().unwrap());
-    let hi_v6 = PodElGamalCiphertextV6(bytemuck::bytes_of(&hi_legacy).try_into().unwrap());
-
-    let lo_ct: Result<ElGamalCiphertext, _> = lo_v6.try_into();
-    let hi_ct: Result<ElGamalCiphertext, _> = hi_v6.try_into();
+    let lo_ct: Result<ElGamalCiphertext, _> = PodElGamalCiphertext(lo_arr).try_into();
+    let hi_ct: Result<ElGamalCiphertext, _> = PodElGamalCiphertext(hi_arr).try_into();
     let (lo_ct, hi_ct) = match (lo_ct, hi_ct) {
         (Ok(l), Ok(h)) => (l, h),
         _ => return Ok(None),

@@ -26,7 +26,9 @@ async fn main() {
 
 async fn run() -> Result<()> {
     println!("== setting up (idempotent) ==");
-    let env = setup::load_or_bootstrap().await.map_err(|e| anyhow!("{e}"))?;
+    let env = setup::load_or_bootstrap()
+        .await
+        .map_err(|e| anyhow!("{e}"))?;
     println!("mint: {}", env.mint.pubkey());
     println!("sender: {}", env.sender.pubkey());
     println!("receiver: {}", env.receiver.pubkey());
@@ -102,7 +104,9 @@ async fn run() -> Result<()> {
         outcome.signature, outcome.applied_amount, outcome.new_available
     );
 
-    println!("\n== 6. withdraw {WITHDRAW_AMOUNT} from receiver's confidential balance to public ==");
+    println!(
+        "\n== 6. withdraw {WITHDRAW_AMOUNT} from receiver's confidential balance to public =="
+    );
     let withdraw_outcome = withdraw::withdraw_from_confidential(
         &env.rpc,
         &env.payer,
@@ -123,13 +127,17 @@ async fn run() -> Result<()> {
         result.auditor_ciphertext_lo_hex.as_ref(),
         result.auditor_ciphertext_hi_hex.as_ref(),
     ) {
-        let disclosed =
-            auditor::decrypt_auditor_amount(lo, hi, &env.auditor_elgamal).map_err(|e| anyhow!("{e}"))?;
+        let disclosed = auditor::decrypt_auditor_amount(lo, hi, &env.auditor_elgamal)
+            .map_err(|e| anyhow!("{e}"))?;
         match disclosed {
             Some(amount) => {
                 println!(
                     "disclosed amount: {amount} (expected {TRANSFER_AMOUNT}) -> {}",
-                    if amount == TRANSFER_AMOUNT { "MATCH" } else { "MISMATCH" }
+                    if amount == TRANSFER_AMOUNT {
+                        "MATCH"
+                    } else {
+                        "MISMATCH"
+                    }
                 );
             }
             None => println!("disclosure FAILED to decrypt (unexpected — same generation)"),
@@ -145,7 +153,8 @@ async fn run() -> Result<()> {
         .map_err(|e| anyhow!("{e}"))?;
     println!("sender:   {sender_view:?}");
     println!("receiver: {receiver_view:?}");
-    let supply = mint::read_total_supply(&env.rpc, &env.mint.pubkey()).map_err(|e| anyhow!("{e}"))?;
+    let supply =
+        mint::read_total_supply(&env.rpc, &env.mint.pubkey()).map_err(|e| anyhow!("{e}"))?;
     println!("mint total supply: {supply}");
 
     println!("\nSPIKE PASSED.");

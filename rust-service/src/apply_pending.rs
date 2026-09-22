@@ -6,12 +6,15 @@
 //!
 //! Adapted from solana-foundation/Confidential-Balances-Sample.
 
+use crate::ata::get_associated_token_address_with_program_id;
 use crate::types::*;
 use solana_client::rpc_client::RpcClient;
 use solana_sdk::{signature::Signer, transaction::Transaction};
 use solana_zk_sdk::encryption::{auth_encryption::AeKey, elgamal::ElGamalKeypair};
-use solana_zk_sdk_pod::encryption::elgamal::PodElGamalCiphertext as PodElGamalCiphertextV6;
-use spl_associated_token_account::get_associated_token_address_with_program_id;
+use solana_zk_sdk_pod::encryption::{
+    auth_encryption::PodAeCiphertext as PodAeCiphertextLegacy,
+    elgamal::PodElGamalCiphertext as PodElGamalCiphertextV6,
+};
 use spl_token_2022::{
     extension::{
         confidential_transfer::{
@@ -20,7 +23,6 @@ use spl_token_2022::{
         },
         BaseStateWithExtensions, StateWithExtensions,
     },
-    solana_zk_sdk::encryption::pod::auth_encryption::PodAeCiphertext as PodAeCiphertextLegacy,
     state::Account as TokenAccount,
 };
 
@@ -44,9 +46,10 @@ pub async fn apply_pending_balance(
         &spl_token_2022::id(),
     );
 
-    let elgamal_keypair = ElGamalKeypair::new_from_signer(authority, &token_account.to_bytes())
-        .map_err(|e| format!("derive ElGamal keypair: {e}"))?;
-    let aes_key = AeKey::new_from_signer(authority, &token_account.to_bytes())
+    let elgamal_keypair =
+        ElGamalKeypair::new_from_signer_legacy(authority, &token_account.to_bytes())
+            .map_err(|e| format!("derive ElGamal keypair: {e}"))?;
+    let aes_key = AeKey::new_from_signer_legacy(authority, &token_account.to_bytes())
         .map_err(|e| format!("derive AES key: {e}"))?;
 
     let account_data = client.get_account(&token_account)?;

@@ -20,23 +20,25 @@ name = "rust_service"
 path = "src/lib.rs"
 
 [dependencies]
-solana-sdk = "3.0.0"
-solana-client = "3.1.6"
-solana-zk-sdk = "6.0.1"
+solana-sdk = "4.1.0"
+solana-client = "=4.4.0-alpha.3"
+solana-zk-sdk = "7.0.1"
 solana-system-interface = { version = "3.0.0", features = ["bincode"] }
 solana-commitment-config = "3.1.0"
+# Direct deps (rather than going through solana-sdk's deprecated re-exports)
+# for V1 (SIMD-0385) transaction construction — see transfer.rs/withdraw.rs.
+solana-message = "4.6.0"
+solana-transaction = { version = "4.3.0", features = ["blake3", "serde", "std", "verify"] }
 
-spl-token-2022 = { version = "10.0.0", features = ["zk-ops"] }
-spl-token-client = "0.18.0"
-spl-associated-token-account = "8.0.0"
-spl-token-confidential-transfer-proof-extraction = "0.5.1"
-spl-token-confidential-transfer-proof-generation = "0.6.0"
+spl-token-2022 = { package = "spl-token-2022-interface", version = "3.1.1" }
+spl-token-confidential-transfer-proof-extraction = "0.6.0"
+spl-token-confidential-transfer-proof-generation = "0.6.1"
 
 solana-zk-elgamal-proof-interface = "0.1.2"
 solana-zk-sdk-pod = "0.1.1"
 solana-address = "2.6"
 bytemuck = "1.25"
-spl-record = { version = "0.4.0", features = ["no-entrypoint"] }
+base64 = "0.22"
 
 tokio = { version = "1", features = ["full"] }
 
