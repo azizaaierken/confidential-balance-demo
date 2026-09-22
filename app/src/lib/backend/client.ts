@@ -19,22 +19,55 @@ const BASE_URL =
 
 export class BackendError extends Error {}
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+// Whichever role tokens this browser session currently holds (however many
+// it has unlocked) — sent on every request via one `X-Auth-Tokens` header so
+// the backend can reveal exactly what that combination is authorized to see
+// (see rust-service/src/auth.rs).
+export interface AuthTokens {
+  sender?: string;
+  receiver?: string;
+  auditor?: string;
+}
+
+function tokensHeader(tokens?: AuthTokens): Record<string, string> {
+  const values = [tokens?.sender, tokens?.receiver, tokens?.auditor].filter(
+    (t): t is string => Boolean(t)
+  );
+  return values.length ? { "X-Auth-Tokens": values.join(",") } : {};
+}
+
+// Reports request-level connectivity (reachable + ok vs. not) after every
+// call — the store uses this to derive a real network-status indicator
+// instead of the click-to-cycle placeholder it used to have.
+type NetworkListener = (ok: boolean) => void;
+let networkListener: NetworkListener | null = null;
+export function onNetworkStatus(fn: NetworkListener) {
+  networkListener = fn;
+}
+
+async function request<T>(path: string, init?: RequestInit, tokens?: AuthTokens): Promise<T> {
   let res: Response;
   try {
     res = await fetch(`${BASE_URL}${path}`, {
       ...init,
-      headers: { "Content-Type": "application/json", ...init?.headers },
+      headers: {
+        "Content-Type": "application/json",
+        ...tokensHeader(tokens),
+        ...init?.headers,
+      },
     });
   } catch {
+    networkListener?.(false);
     throw new BackendError(
       `Could not reach the devnet backend at ${BASE_URL}. Is rust-service running?`
     );
   }
   const body = await res.json().catch(() => null);
   if (!res.ok || !body?.ok) {
+    networkListener?.(false);
     throw new BackendError(body?.error ?? `Backend request to ${path} failed (${res.status})`);
   }
+  networkListener?.(true);
   return body as T;
 }
 
@@ -55,7 +88,7 @@ interface RawMint {
 
 interface RawConfidentialAmount {
   ciphertext: string;
-  decrypted: number;
+  decrypted: number | null;
 }
 
 interface RawBalance {
@@ -89,6 +122,7 @@ interface RawActivityEntry {
   auditorCiphertextLoHex?: string;
   auditorCiphertextHiHex?: string;
   disclosedAmountUi?: number;
+  partyVisibleAmountUi?: number;
   originAgentProposalId?: string;
 }
 
@@ -158,6 +192,7 @@ function toActivityEntry(a: RawActivityEntry): ActivityEntry {
     timestamp: a.timestamp,
     signature: a.signature,
     publicAmount: a.publicAmountUi,
+    partyVisibleAmount: a.partyVisibleAmountUi,
     confidential: a.auditorKeyGenerationId
       ? {
           ciphertext: a.auditorCiphertextLoHex ? shortCiphertext(a.auditorCiphertextLoHex) : shortCiphertext(""),
@@ -231,40 +266,54 @@ function mapState(raw: RawState): BackendState {
 
 // ---- Public API ----
 
-export async function fetchState(): Promise<BackendState> {
-  const raw = await request<RawState>("/state");
+export type AuthRole = "sender" | "receiver" | "auditor";
+
+export async function login(role: AuthRole, password: string): Promise<string> {
+  const raw = await request<{ ok: boolean; token: string }>("/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ role, password }),
+  });
+  return raw.token;
+}
+
+export async function fetchState(tokens?: AuthTokens): Promise<BackendState> {
+  const raw = await request<RawState>("/state", undefined, tokens);
   return mapState(raw);
 }
 
-export async function mintSupply(accountId: string, amount: number) {
-  const raw = await request<RawActionResponse>("/mint", {
-    method: "POST",
-    body: JSON.stringify({ accountId, amount }),
-  });
+export async function mintSupply(accountId: string, amount: number, tokens?: AuthTokens) {
+  const raw = await request<RawActionResponse>(
+    "/mint",
+    { method: "POST", body: JSON.stringify({ accountId, amount }) },
+    tokens
+  );
   return { signature: raw.signature, state: mapState(raw.state) };
 }
 
-export async function deposit(accountId: string, amount: number) {
-  const raw = await request<RawActionResponse>("/deposit", {
-    method: "POST",
-    body: JSON.stringify({ accountId, amount }),
-  });
+export async function deposit(accountId: string, amount: number, tokens?: AuthTokens) {
+  const raw = await request<RawActionResponse>(
+    "/deposit",
+    { method: "POST", body: JSON.stringify({ accountId, amount }) },
+    tokens
+  );
   return { signature: raw.signature, state: mapState(raw.state) };
 }
 
-export async function withdraw(accountId: string, amount: number) {
-  const raw = await request<RawActionResponse>("/withdraw", {
-    method: "POST",
-    body: JSON.stringify({ accountId, amount }),
-  });
+export async function withdraw(accountId: string, amount: number, tokens?: AuthTokens) {
+  const raw = await request<RawActionResponse>(
+    "/withdraw",
+    { method: "POST", body: JSON.stringify({ accountId, amount }) },
+    tokens
+  );
   return { signature: raw.signature, state: mapState(raw.state) };
 }
 
-export async function applyPending(accountId: string) {
-  const raw = await request<RawActionResponse>("/apply-pending", {
-    method: "POST",
-    body: JSON.stringify({ accountId }),
-  });
+export async function applyPending(accountId: string, tokens?: AuthTokens) {
+  const raw = await request<RawActionResponse>(
+    "/apply-pending",
+    { method: "POST", body: JSON.stringify({ accountId }) },
+    tokens
+  );
   return { signature: raw.signature, state: mapState(raw.state) };
 }
 
@@ -272,17 +321,55 @@ export async function confidentialTransfer(
   fromAccountId: string,
   toAccountId: string,
   amount: number,
-  originAgentProposalId?: string
+  originAgentProposalId?: string,
+  tokens?: AuthTokens
 ) {
-  const raw = await request<RawActionResponse>("/transfer", {
-    method: "POST",
-    body: JSON.stringify({ fromAccountId, toAccountId, amount, originAgentProposalId }),
-  });
+  const raw = await request<RawActionResponse>(
+    "/transfer",
+    { method: "POST", body: JSON.stringify({ fromAccountId, toAccountId, amount, originAgentProposalId }) },
+    tokens
+  );
   return { signature: raw.signature, signatures: raw.signatures, state: mapState(raw.state) };
 }
 
-export async function rotateAuditorKey(): Promise<BackendState> {
-  const raw = await request<RawState>("/auditor/rotate", { method: "POST" });
+export interface TransferSimulation {
+  success: boolean;
+  error: string | null;
+  logs: string[];
+  unitsConsumed: number | null;
+  feeLamports: number | null;
+}
+
+/// Asks the backend to build the real transaction and have devnet simulate
+/// it. Throws if the transaction couldn't be built or the cluster couldn't be
+/// reached — which is not the same as "this transfer would fail", so callers
+/// should surface that case distinctly rather than as a verdict.
+export async function simulateTransfer(
+  fromAccountId: string,
+  toAccountId: string,
+  amount: number,
+  tokens?: AuthTokens
+): Promise<TransferSimulation> {
+  const raw = await request<TransferSimulation & { ok: boolean }>(
+    "/transfer/simulate",
+    { method: "POST", body: JSON.stringify({ fromAccountId, toAccountId, amount }) },
+    tokens
+  );
+  return {
+    success: raw.success,
+    error: raw.error,
+    logs: raw.logs ?? [],
+    unitsConsumed: raw.unitsConsumed,
+    feeLamports: raw.feeLamports,
+  };
+}
+
+export async function rotateAuditorKey(confirmPassword: string, tokens?: AuthTokens): Promise<BackendState> {
+  const raw = await request<RawState>(
+    "/auditor/rotate",
+    { method: "POST", body: JSON.stringify({ confirmPassword }) },
+    tokens
+  );
   return mapState(raw);
 }
 
@@ -290,14 +377,13 @@ export async function requestAuditDisclosure(
   activityId: string,
   requestedBy: string,
   reason: string,
-  keyGenerationId: string
+  keyGenerationId: string,
+  tokens?: AuthTokens
 ) {
   const raw = await request<{ ok: boolean; disclosure: RawAuditDisclosure; state: RawState }>(
     "/auditor/disclose",
-    {
-      method: "POST",
-      body: JSON.stringify({ activityId, requestedBy, reason, keyGenerationId }),
-    }
+    { method: "POST", body: JSON.stringify({ activityId, requestedBy, reason, keyGenerationId }) },
+    tokens
   );
   return { disclosure: toAuditDisclosure(raw.disclosure), state: mapState(raw.state) };
 }

@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { clsx } from "clsx";
 import {
   LayoutDashboard,
-  Bot,
+  // Bot, // Agent Payments nav (disabled)
   ShieldCheck,
   ShieldQuestion,
   RotateCcw,
@@ -22,7 +22,6 @@ export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const network = useDemoStore((s) => s.network);
-  const setNetwork = useDemoStore((s) => s.setNetwork);
   const ownerAccountId = useDemoStore((s) => s.ownerAccountId);
   const setOwnerAccountId = useDemoStore((s) => s.setOwnerAccountId);
   const reset = useDemoStore((s) => s.reset);
@@ -31,7 +30,8 @@ export function Sidebar() {
     { href: "/", label: c.nav.dashboard, icon: LayoutDashboard },
     { href: "/audit", label: c.nav.audit, icon: ShieldCheck },
   ];
-  const AGENT_NAV = [{ href: "/agent", label: c.nav.agent, icon: Bot }];
+  // Agent Payments is disabled for client-facing demos (not reusable). Kept commented out rather than deleted.
+  // const AGENT_NAV = [{ href: "/agent", label: c.nav.agent, icon: Bot }];
 
   const NETWORK_LABEL: Record<string, { text: string; dotClass: string; icon: React.ElementType }> = {
     connected: { text: c.common.devnetConnected, dotClass: "bg-success-500", icon: ShieldCheck },
@@ -39,16 +39,6 @@ export function Sidebar() {
     disconnected: { text: c.common.devnetDisconnected, dotClass: "bg-danger-500", icon: ShieldQuestion },
   };
   const netCfg = NETWORK_LABEL[network];
-
-  function cycleNetwork() {
-    const order: ("connected" | "degraded" | "disconnected")[] = [
-      "connected",
-      "degraded",
-      "disconnected",
-    ];
-    const idx = order.indexOf(network as never);
-    setNetwork(order[(idx + 1) % order.length]);
-  }
 
   return (
     <aside className="flex h-screen w-16 shrink-0 flex-col border-r border-border-subtle bg-sidebar xl:w-64">
@@ -105,10 +95,12 @@ export function Sidebar() {
           })}
         </ul>
 
+        {/* Agent Payments section (disabled for client-facing demos)
         <p className="hidden px-2 pb-2 pt-5 text-xs font-semibold uppercase tracking-wide text-ink-400 xl:block">
           {c.nav.agentSection}
         </p>
         <NavLinkList items={AGENT_NAV} pathname={pathname} />
+        */}
       </nav>
 
       <div className="flex flex-col gap-2 border-t border-border-subtle px-2 py-3 xl:px-3">
@@ -117,20 +109,19 @@ export function Sidebar() {
         </div>
         <button
           onClick={reset}
-          title={c.nav.resetDemo}
+          title={c.nav.refreshFromDevnet}
           className="flex items-center justify-center gap-2 rounded-lg px-2 py-2 text-xs font-medium text-ink-500 hover:bg-ink-900/5 hover:text-ink-700 xl:justify-start"
         >
           <RotateCcw size={14} />
-          <span className="hidden xl:inline">{c.nav.resetDemo}</span>
+          <span className="hidden xl:inline">{c.nav.refreshFromDevnet}</span>
         </button>
-        <button
-          onClick={cycleNetwork}
-          className="flex items-center justify-center gap-2 rounded-lg px-2 py-2 text-left text-xs font-medium text-ink-700 hover:bg-ink-900/5 xl:justify-start"
+        <div
+          className="flex items-center justify-center gap-2 rounded-lg px-2 py-2 text-left text-xs font-medium text-ink-700 xl:justify-start"
           title={netCfg.text}
         >
           <span className={clsx("h-2 w-2 shrink-0 rounded-full", netCfg.dotClass)} />
           <span className="hidden xl:inline">{netCfg.text}</span>
-        </button>
+        </div>
       </div>
     </aside>
   );

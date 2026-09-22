@@ -30,6 +30,9 @@ export function evidenceStepLabel(c: Copy, step: EvidenceStep): string {
     close_equality_proof: c.evidence.closeEqualityProof,
     close_range_proof: c.evidence.closeRangeProof,
     close_proof_record: c.evidence.closeProofRecord,
+    submit_transfer_v1: c.evidence.submitTransferV1,
+    submit_withdraw_v1: c.evidence.submitWithdrawV1,
+    verify_range_proof: c.evidence.verifyRangeProof,
   };
   const base = map[step.label];
   return step.part != null ? `${base} (${c.evidence.part(step.part)})` : base;

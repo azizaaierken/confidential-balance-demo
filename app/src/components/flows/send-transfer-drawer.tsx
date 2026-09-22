@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Drawer } from "@/components/ui/drawer";
 import { Button } from "@/components/ui/button";
 import { ProgressTracker, TrackerStep } from "@/components/ui/progress-tracker";
-import { PrivacyBadge, WarningNote, StatusBadge } from "@/components/ui/badge";
+import { WarningNote, StatusBadge } from "@/components/ui/badge";
+import * as backend from "@/lib/backend/client";
 import { EvidenceDisclosure, EvidenceRow } from "@/components/ui/evidence-disclosure";
 import { useDemoStore } from "@/store/demo-store";
 import { MINT, PERSONAS } from "@/lib/mock-data";
@@ -15,9 +16,17 @@ import { useCopy } from "@/lib/i18n/use-copy";
 import { stageLabel } from "@/lib/i18n/helpers";
 import { classifyFailure } from "@/lib/failure";
 import { SolscanLink } from "@/components/ui/solscan-link";
-import { EvidenceSteps } from "@/components/ui/evidence-steps";
+import { EvidenceSteps, expandEvidenceSteps } from "@/components/ui/evidence-steps";
 
 type FlowStep = "review" | "signing" | "progress" | "result";
+
+type SimulationState =
+  | { status: "idle" }
+  | { status: "running" }
+  | { status: "done"; result: backend.TransferSimulation }
+  | { status: "unavailable"; reason: string };
+
+const LAMPORTS_PER_SOL = 1_000_000_000;
 
 const STAGE_TO_STEP_INDEX: Record<FailureStage, number> = {
   proposal_parsing: 0,
@@ -63,6 +72,66 @@ export function SendTransferDrawer({
 
   const numericAmount = parseFloat(amount) || 0;
   const preflightInsufficient = numericAmount > available;
+
+  // Building the transaction means generating all three ZK proofs, so this is
+  // a real ~2-3s round trip, not something to fire on every keystroke — hence
+  // the debounce. The over-balance case is settled locally first (against the
+  // genuine decrypted balance) and never reaches the node: proof generation
+  // would refuse to build a proof that underflows before the cluster is even
+  // asked, which is a worse error to show than simply saying so up front.
+  //
+  // Only the *outcome* of a simulation lives in state, tagged with the inputs
+  // it was run for. "idle" and "running" are derived during render: not
+  // simulating means idle, and simulating with no outcome for the current
+  // inputs means running. That keeps the effect free of synchronous setState
+  // calls (which React's hooks lint flags as a cascading-render hazard) and
+  // means a stale outcome can never be shown against fresh inputs.
+  const shouldSimulate =
+    open && step === "review" && numericAmount > 0 && !preflightInsufficient && Boolean(toId);
+  const simulationKey = `${fromAccountId}|${toId}|${numericAmount}`;
+  const [simulationOutcome, setSimulationOutcome] = useState<{
+    key: string;
+    state: Extract<SimulationState, { status: "done" | "unavailable" }>;
+  } | null>(null);
+  const simulation: SimulationState = !shouldSimulate
+    ? { status: "idle" }
+    : simulationOutcome?.key === simulationKey
+      ? simulationOutcome.state
+      : { status: "running" };
+
+  useEffect(() => {
+    if (!shouldSimulate) return;
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      try {
+        const result = await backend.simulateTransfer(
+          fromAccountId,
+          toId,
+          numericAmount,
+          useDemoStore.getState().authTokens
+        );
+        if (!cancelled) {
+          setSimulationOutcome({ key: simulationKey, state: { status: "done", result } });
+        }
+      } catch (e) {
+        // Couldn't build or couldn't reach the cluster — report it as such
+        // rather than as a verdict on the transfer itself.
+        if (!cancelled) {
+          setSimulationOutcome({
+            key: simulationKey,
+            state: {
+              status: "unavailable",
+              reason: e instanceof Error ? e.message : String(e),
+            },
+          });
+        }
+      }
+    }, 700);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [shouldSimulate, simulationKey, fromAccountId, toId, numericAmount]);
 
   function handleClose() {
     setStep("review");
@@ -148,8 +217,6 @@ export function SendTransferDrawer({
     >
       {step === "review" && (
         <div className="flex flex-col gap-5">
-          <PrivacyBadge variant="demo-simulation" />
-
           <div className="grid grid-cols-2 gap-3 rounded-xl border border-border-subtle p-4 text-sm">
             <div>
               <p className="text-ink-500">{c.sendTransfer.network}</p>
@@ -208,8 +275,25 @@ export function SendTransferDrawer({
               <p className="text-ink-500">{c.sendTransfer.simulationEmpty}</p>
             ) : preflightInsufficient ? (
               <p className="text-danger-600">{c.sendTransfer.simulationInsufficient}</p>
+            ) : simulation.status === "running" || simulation.status === "idle" ? (
+              <p className="text-ink-500">{c.sendTransfer.simulationRunning}</p>
+            ) : simulation.status === "unavailable" ? (
+              <p className="text-warning-600">
+                {c.sendTransfer.simulationUnavailable(simulation.reason)}
+              </p>
+            ) : simulation.result.success ? (
+              <p className="text-success-600">
+                {c.sendTransfer.simulationSuccess(
+                  simulation.result.feeLamports != null
+                    ? (simulation.result.feeLamports / LAMPORTS_PER_SOL).toFixed(6)
+                    : "—",
+                  simulation.result.unitsConsumed?.toLocaleString() ?? "—"
+                )}
+              </p>
             ) : (
-              <p className="text-success-600">{c.sendTransfer.simulationSuccess}</p>
+              <p className="text-danger-600">
+                {c.sendTransfer.simulationFailed(simulation.result.error ?? "unknown error")}
+              </p>
             )}
           </div>
 
@@ -266,7 +350,7 @@ export function SendTransferDrawer({
             )}
           </EvidenceDisclosure>
 
-          <EvidenceSteps steps={result.steps} />
+          <EvidenceSteps steps={expandEvidenceSteps(result.steps, "transfer")} />
 
           <SolscanLink signature={result.signature} />
         </div>

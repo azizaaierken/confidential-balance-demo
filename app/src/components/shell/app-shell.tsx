@@ -4,20 +4,38 @@ import { useEffect, useState } from "react";
 import { Sidebar } from "./sidebar";
 import { useDemoStore } from "@/store/demo-store";
 
+const CONNECT_TIMEOUT_MS = 8000;
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const [mounted, setMounted] = useState(false);
+  const [slowConnect, setSlowConnect] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   const backendReady = useDemoStore((s) => s.backendReady);
   const backendError = useDemoStore((s) => s.backendError);
   const hydrate = useDemoStore((s) => s.hydrate);
 
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional client-mount gate, see comment below
-    setMounted(true);
+  function tryConnect() {
+    setSlowConnect(false);
+    setAttempt((n) => n + 1);
     hydrate().catch(() => {
       // surfaced via backendError below; nothing further to do here
     });
+  }
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional client-mount gate, see comment below
+    setMounted(true);
+    tryConnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount
   }, []);
+
+  useEffect(() => {
+    if (backendReady || backendError) return;
+    const timer = setTimeout(() => setSlowConnect(true), CONNECT_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+    // `attempt` forces this timer to restart on every manual retry, since
+    // backendReady/backendError alone don't change when a retry is kicked off.
+  }, [backendReady, backendError, attempt]);
 
   // The demo store used to seed itself with randomized ciphertexts/signatures
   // and wall-clock timestamps at module-init time, which could never match
@@ -40,16 +58,36 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <p className="max-w-md">{backendError}</p>
         <p className="max-w-md text-xs text-ink-400">
           Start it with <code className="font-mono">cargo run --bin server</code> in{" "}
-          <code className="font-mono">rust-service/</code>, then reload.
+          <code className="font-mono">rust-service/</code>, then retry.
         </p>
+        <button
+          onClick={tryConnect}
+          className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700"
+        >
+          Retry
+        </button>
       </div>
     );
   }
 
   if (!backendReady) {
     return (
-      <div className="flex h-screen items-center justify-center bg-canvas text-sm text-ink-500">
-        Connecting to devnet backend…
+      <div className="flex h-screen flex-col items-center justify-center gap-3 bg-canvas px-6 text-center text-sm text-ink-500">
+        <p>Connecting to devnet backend…</p>
+        {slowConnect && (
+          <>
+            <p className="max-w-md text-xs text-ink-400">
+              This is taking longer than expected — the backend may be slow to respond or not
+              running.
+            </p>
+            <button
+              onClick={tryConnect}
+              className="rounded-lg border border-border-strong bg-white px-4 py-2 text-sm font-medium text-ink-700 hover:bg-canvas"
+            >
+              Retry
+            </button>
+          </>
+        )}
       </div>
     );
   }

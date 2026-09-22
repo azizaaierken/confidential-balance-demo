@@ -41,6 +41,18 @@ with a fresh mint and fresh personas.
 By default the service points at `https://api.devnet.solana.com`; override
 with `SOLANA_RPC_URL` if you have your own devnet endpoint.
 
+#### Demo passwords
+
+Owner and auditor actions (send/deposit/withdraw, per-transfer disclosure,
+auditor-key rotation) require unlocking with one of these — printed to the
+server's log at startup, and reproduced here so you don't have to go look:
+
+| Role | Password | Override via |
+|---|---|---|
+| Sender owner | `sender-demo` | `OWNER_SENDER_PASSWORD` |
+| Receiver owner | `receiver-demo` | `OWNER_RECEIVER_PASSWORD` |
+| Auditor | `auditor-demo` | `AUDITOR_PASSWORD` |
+
 ### 2. Frontend (`app/`)
 
 ```bash

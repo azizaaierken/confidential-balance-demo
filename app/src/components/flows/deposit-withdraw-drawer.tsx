@@ -5,7 +5,7 @@ import { Drawer } from "@/components/ui/drawer";
 import { Button } from "@/components/ui/button";
 import { WarningNote, StatusBadge } from "@/components/ui/badge";
 import { EvidenceDisclosure, EvidenceRow } from "@/components/ui/evidence-disclosure";
-import { EvidenceSteps } from "@/components/ui/evidence-steps";
+import { EvidenceSteps, expandEvidenceSteps } from "@/components/ui/evidence-steps";
 import { SolscanLink } from "@/components/ui/solscan-link";
 import { useDemoStore } from "@/store/demo-store";
 import { MINT } from "@/lib/mock-data";
@@ -134,7 +134,9 @@ export function DepositWithdrawDrawer({
             <EvidenceRow label="Program activity" value={result.programActivity.join(", ")} />
           </EvidenceDisclosure>
 
-          <EvidenceSteps steps={result.steps} />
+          <EvidenceSteps
+            steps={direction === "withdraw" ? expandEvidenceSteps(result.steps, "withdraw") : result.steps}
+          />
 
           <SolscanLink signature={result.signature} />
         </div>

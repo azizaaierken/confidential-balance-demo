@@ -23,6 +23,14 @@ export const en: Copy = {
     processing: "Processing…",
     copyFullAddress: "Copy full address",
     copied: "Copied",
+    passwordLabel: "Password",
+    wrongPassword: "Incorrect password.",
+    unlock: "Unlock",
+    submit: "Submit",
+    retryButton: "Retry",
+    previousPage: "Previous",
+    nextPage: "Next",
+    pageOf: (page, total) => `Page ${page} of ${total}`,
   },
   nav: {
     dashboard: "Main Console",
@@ -31,7 +39,7 @@ export const en: Copy = {
     operations: "Operations",
     accounts: "Accounts",
     agentSection: "Agent",
-    resetDemo: "Reset demo scenario",
+    refreshFromDevnet: "Refresh from devnet",
     sender: "sender",
     receiver: "receiver",
   },
@@ -57,8 +65,12 @@ export const en: Copy = {
       "This console always shows what any third party querying these wallets via RPC or an explorer would see. Public balances are genuinely visible to anyone — that's normal for any Token-2022 account. Only confidential balances are invisible to them.",
     ownerAccessHint: "Select an account in the sidebar to view and act as its owner.",
     viewAsAuditor: "View as auditor",
+    statConfidentialTransfers: "Confidential transfers",
+    statTotalSupply: "Total public supply",
+    statActiveAuditorKey: "Active auditor key",
   },
   mint: {
+    technicalEvidenceLabel: "Technical evidence",
     configTitle: "Mint configuration",
     configSubtitle: "On-chain configuration proving this mint has the Confidential Transfer extension enabled",
     mintAddressLabel: "Mint address",
@@ -91,13 +103,16 @@ export const en: Copy = {
     switchToOwnerNote: "Switch to Owner view for this account to send, deposit, or withdraw.",
     activityTitle: "Activity",
     activitySubtitle: "Scoped to this account",
+    unlockOwnerTitle: "Unlock owner access",
+    unlockOwnerBody:
+      "This account's own confidential balance and its send/deposit/withdraw actions require its password — this demo's stand-in for a wallet approving on the owner's behalf.",
   },
   activity: {
     mintLabel: "Mint",
     depositLabel: "Deposit",
     withdrawLabel: "Withdraw",
     confidentialTransferLabel: "Confidential transfer",
-    applyPendingLabel: "Apply pending",
+    applyPendingLabel: "Applied to confidential balance",
   },
   sendTransfer: {
     title: "Send confidential transfer",
@@ -109,10 +124,14 @@ export const en: Copy = {
     receiver: "Receiver",
     amountLabel: "Amount — authorized user's view",
     availableBalance: (amount, symbol) => `Available confidential balance: ${amount} ${symbol}`,
-    simulationTitle: "Simulation result",
-    simulationEmpty: "Enter an amount to simulate this transfer.",
-    simulationInsufficient: "Simulation predicts failure: amount exceeds available confidential balance.",
-    simulationSuccess: "Simulation predicts success. Estimated fee: 0.000005 SOL (simulated).",
+    simulationTitle: "Devnet simulation",
+    simulationEmpty: "Enter an amount to simulate this transfer against devnet.",
+    simulationInsufficient: "Amount exceeds available confidential balance.",
+    simulationRunning: "Building the transaction and simulating it on devnet…",
+    simulationSuccess: (fee, units) =>
+      `Devnet simulated this transaction successfully. Fee ${fee} SOL · ${units} compute units.`,
+    simulationFailed: (reason) => `Devnet rejected this transaction: ${reason}`,
+    simulationUnavailable: (reason) => `Could not simulate: ${reason}`,
     addressWarning:
       "Addresses remain public. Only the transfer amount will be encrypted on-chain — this is not an anonymous transfer.",
     negativePathSummary: "Presenter: simulate a negative path (optional)",
@@ -123,10 +142,10 @@ export const en: Copy = {
     negativePathWallet: "Rejected signature (wallet declines)",
     negativePathNetwork: "Network failure at submission",
     reviewAndSign: "Review and sign",
-    waitingWalletTitle: "Waiting for wallet approval",
+    waitingWalletTitle: "Signing with this account's demo keypair",
     waitingWalletBody:
-      "A separate connected browser wallet — not this application — must approve this transaction. The agent or app can never sign on the wallet's behalf.",
-    approveInWallet: "Approve in wallet (simulated)",
+      "This demo signs with a keypair held locally by the backend service, standing in for this account — there is no separate browser wallet here. A production deployment would need real wallet-approved signing per persona (browser extension, hardware, or an MPC signer), not a keypair the service can sign with on its own.",
+    approveInWallet: "Sign transfer (demo keypair)",
     stepProof: "Preparing proof",
     stepWallet: "Awaiting wallet approval",
     stepSubmitted: "Submitted",
@@ -171,7 +190,7 @@ export const en: Copy = {
     stageWalletApproval: "Browser wallet approval",
     stageDevnet: "Solana devnet",
     newInstructionTitle: "New payment instruction",
-    newInstructionSubtitle: "Natural-language intent from the customer",
+    newInstructionSubtitle: (payer) => `Natural-language intent — paid from ${payer}`,
     instructionPlaceholder: "e.g. Pay Harbour Logistics 4,200 TOKEN-X today for the September shipment",
     proposeButton: "Propose payment",
     emptyState:
@@ -202,6 +221,10 @@ export const en: Copy = {
     failedTitle: "Execution failed.",
     failedAtStage: (stage) => `Failed at: ${stage}.`,
     openInvestigation: "Open investigation in Audit Console",
+    abandonInstruction: "Give up on this instruction",
+    abandonedNote: "Instruction abandoned before it was put to policy — nothing was submitted. Recorded for audit.",
+    blockedByPolicyTitle: "Blocked by bank policy — recorded for audit.",
+    declinedByOperatorTitle: "Declined by the operator — recorded for audit.",
     status: {
       parsing: "Parsing",
       needsClarification: "Needs clarification",
@@ -212,6 +235,7 @@ export const en: Copy = {
       executing: "Executing",
       executed: "Executed",
       failed: "Failed",
+      abandoned: "Abandoned",
     },
     timing: {
       immediate: "Immediate",
@@ -227,11 +251,14 @@ export const en: Copy = {
       name: "Recipient allowlist",
       pass: "Recipient is a known, allowlisted counterparty.",
       fail: "No allowlisted recipient resolved.",
+      failSelf: "The resolved recipient is the sending account itself — that is not a payment.",
     },
     availableBalance: {
       name: "Available confidential balance",
       pass: "Sender's available confidential balance covers this amount.",
       fail: "Amount exceeds the sender's available confidential balance.",
+      unknown:
+        "Not visible to this session (sender isn't unlocked here) — the real check happens when the transfer executes.",
     },
     dailyLimit: {
       name: "Daily confidential-transfer limit",
@@ -272,6 +299,9 @@ export const en: Copy = {
     closeEqualityProof: "Close equality-proof account",
     closeRangeProof: "Close range-proof account",
     closeProofRecord: "Close range-proof staging record",
+    verifyRangeProof: "Verify range proof",
+    submitTransferV1: "Confidential transfer",
+    submitWithdrawV1: "Withdraw",
     part: (n) => `part ${n}`,
     stepsTitle: "Transaction breakdown",
     solscanGap:
@@ -280,8 +310,10 @@ export const en: Copy = {
   audit: {
     title: "Audit Console",
     subtitle: "Controlled, per-transfer disclosure for an authorized payment auditor",
-    unlockButton: "Unlock auditor access (simulated)",
-    unlockedButton: "Auditor access unlocked",
+    lockButton: "Lock auditor access",
+    unlockPromptTitle: "Unlock auditor access",
+    unlockPromptBody:
+      "Per-transfer disclosure and the operational access record require the auditor password — checked by the backend, not simulated locally.",
     keyTimelineTitle: "Auditor key generations",
     keyTimelineSubtitle: "A transfer stays encrypted to the key generation active when it was created",
     rotateButton: "Rotate auditor key",
@@ -290,6 +322,14 @@ export const en: Copy = {
     retiredLabel: (date) => `Retired ${date}`,
     rotationNote:
       "Rotation does not retroactively re-encrypt historical transfers. Retired keys are retained in an archive under bank retention and access policy.",
+    rotateConfirmTitle: "Confirm auditor key rotation",
+    rotateConfirmBody:
+      "Every confidential transfer from this point on will be encrypted to the new key generation. Retired generations are kept so past disclosures still work, but this action itself cannot be undone.",
+    rotateConfirmPhraseLabel: (phrase) => `Type ${phrase} to confirm`,
+    rotateConfirmPhrasePlaceholder: "ROTATE",
+    rotateConfirmPasswordLabel: "Re-enter auditor password",
+    rotateConfirmButton: "Rotate key",
+    rotateConfirmPhraseMismatch: "Doesn't match — type it exactly as shown.",
     transfersTitle: "Confidential transfers",
     transfersSubtitleLocked: "Locked — unlock auditor access to request disclosure",
     transfersSubtitleUnlocked: "Select a transfer to request per-transfer disclosure",
@@ -324,6 +364,8 @@ export const en: Copy = {
     investigationTitle: "Agent payment investigations",
     investigationSubtitle:
       "Payment audit and AI-decision audit, shown as two independently authorized panels — this is controlled disclosure, not a compliance backdoor",
+    investigationSubtitleLocked:
+      "Locked — unlock auditor access to disclose an amount or open a decision record",
     investigationEmpty:
       "No agent-initiated payments yet. Propose and execute one from Agent Payments to see a combined investigation here.",
     paymentEvidence: "Payment evidence",
@@ -331,6 +373,15 @@ export const en: Copy = {
     correlationRef: "Correlation reference:",
     decryptAmount: "Decrypt amount",
     noDecisionRecord: "No decision record is available for this payment.",
+    blockedByPolicy: (checks) =>
+      `Blocked by bank policy before execution — failed: ${checks}. Nothing was submitted to the chain.`,
+    declinedByOperator: (by) =>
+      `Policy checks passed; ${by} declined to approve. Nothing was submitted to the chain.`,
+    abandonedBeforeReview: (customer) =>
+      `Instruction from ${customer} was withdrawn before it reached policy review — it was never put to a policy check, an approver, or the chain.`,
+    recipientUnresolved: "(recipient never resolved)",
+    outcomeNotExecuted: "Not executed.",
+    noTransactionOnChain: "No transaction reached the chain — nothing was submitted, so there is no signature or ciphertext to disclose.",
     revealDecisionRecord: "Reveal decision record (role-authorized)",
     decisionInput: "Input:",
     decisionPolicyVersion: "Policy version:",
@@ -341,6 +392,9 @@ export const en: Copy = {
     investigationFooter:
       "The auditor key reveals payment amounts only — it does not reveal or reconstruct AI reasoning. Decision evidence is disclosed separately, according to role and case authorization.",
     outcomeExecuted: "Executed",
+    outcomeBlockedShort: "Blocked by bank policy",
+    outcomeDeclinedShort: "Declined by the operator",
+    outcomeWithdrawnShort: "Withdrawn before policy review",
     outcomeFailedAt: (stage) => `Failed at ${stage}`,
   },
   languageSwitcher: {

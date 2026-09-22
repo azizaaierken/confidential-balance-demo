@@ -23,6 +23,14 @@ export interface Copy {
     processing: string;
     copyFullAddress: string;
     copied: string;
+    passwordLabel: string;
+    wrongPassword: string;
+    unlock: string;
+    submit: string;
+    retryButton: string;
+    previousPage: string;
+    nextPage: string;
+    pageOf: (page: number, total: number) => string;
   };
   nav: {
     dashboard: string;
@@ -31,7 +39,7 @@ export interface Copy {
     operations: string;
     accounts: string;
     agentSection: string;
-    resetDemo: string;
+    refreshFromDevnet: string;
     sender: string;
     receiver: string;
   };
@@ -56,8 +64,12 @@ export interface Copy {
     thirdPartyQueryNote: string;
     ownerAccessHint: string;
     viewAsAuditor: string;
+    statConfidentialTransfers: string;
+    statTotalSupply: string;
+    statActiveAuditorKey: string;
   };
   mint: {
+    technicalEvidenceLabel: string;
     configTitle: string;
     configSubtitle: string;
     mintAddressLabel: string;
@@ -88,6 +100,8 @@ export interface Copy {
     switchToOwnerNote: string;
     activityTitle: string;
     activitySubtitle: string;
+    unlockOwnerTitle: string;
+    unlockOwnerBody: string;
   };
   activity: {
     mintLabel: string;
@@ -109,7 +123,10 @@ export interface Copy {
     simulationTitle: string;
     simulationEmpty: string;
     simulationInsufficient: string;
-    simulationSuccess: string;
+    simulationRunning: string;
+    simulationSuccess: (fee: string, units: string) => string;
+    simulationFailed: (reason: string) => string;
+    simulationUnavailable: (reason: string) => string;
     addressWarning: string;
     negativePathSummary: string;
     negativePathHint: string;
@@ -161,7 +178,7 @@ export interface Copy {
     stageWalletApproval: string;
     stageDevnet: string;
     newInstructionTitle: string;
-    newInstructionSubtitle: string;
+    newInstructionSubtitle: (payer: string) => string;
     instructionPlaceholder: string;
     proposeButton: string;
     emptyState: string;
@@ -190,6 +207,10 @@ export interface Copy {
     failedTitle: string;
     failedAtStage: (stage: string) => string;
     openInvestigation: string;
+    abandonInstruction: string;
+    abandonedNote: string;
+    blockedByPolicyTitle: string;
+    declinedByOperatorTitle: string;
     status: {
       parsing: string;
       needsClarification: string;
@@ -200,6 +221,7 @@ export interface Copy {
       executing: string;
       executed: string;
       failed: string;
+      abandoned: string;
     };
     timing: {
       immediate: string;
@@ -211,8 +233,8 @@ export interface Copy {
     };
   };
   policy: {
-    recipientAllowlist: { name: string; pass: string; fail: string };
-    availableBalance: { name: string; pass: string; fail: string };
+    recipientAllowlist: { name: string; pass: string; fail: string; failSelf: string };
+    availableBalance: { name: string; pass: string; fail: string; unknown: string };
     dailyLimit: { name: string; detail: (limit: string) => string };
     humanApproval: { name: string; detail: string };
   };
@@ -246,6 +268,9 @@ export interface Copy {
     closeEqualityProof: string;
     closeRangeProof: string;
     closeProofRecord: string;
+    verifyRangeProof: string;
+    submitTransferV1: string;
+    submitWithdrawV1: string;
     part: (n: number) => string;
     stepsTitle: string;
     solscanGap: string;
@@ -253,8 +278,9 @@ export interface Copy {
   audit: {
     title: string;
     subtitle: string;
-    unlockButton: string;
-    unlockedButton: string;
+    lockButton: string;
+    unlockPromptTitle: string;
+    unlockPromptBody: string;
     keyTimelineTitle: string;
     keyTimelineSubtitle: string;
     rotateButton: string;
@@ -262,6 +288,13 @@ export interface Copy {
     createdLabel: (date: string) => string;
     retiredLabel: (date: string) => string;
     rotationNote: string;
+    rotateConfirmTitle: string;
+    rotateConfirmBody: string;
+    rotateConfirmPhraseLabel: (phrase: string) => string;
+    rotateConfirmPhrasePlaceholder: string;
+    rotateConfirmPasswordLabel: string;
+    rotateConfirmButton: string;
+    rotateConfirmPhraseMismatch: string;
     transfersTitle: string;
     transfersSubtitleLocked: string;
     transfersSubtitleUnlocked: string;
@@ -289,12 +322,19 @@ export interface Copy {
     logKeyActivated: (label: string, active: boolean) => string;
     investigationTitle: string;
     investigationSubtitle: string;
+    investigationSubtitleLocked: string;
     investigationEmpty: string;
     paymentEvidence: string;
     decisionEvidence: string;
     correlationRef: string;
     decryptAmount: string;
     noDecisionRecord: string;
+    blockedByPolicy: (checks: string) => string;
+    declinedByOperator: (by: string) => string;
+    abandonedBeforeReview: (customer: string) => string;
+    recipientUnresolved: string;
+    outcomeNotExecuted: string;
+    noTransactionOnChain: string;
     revealDecisionRecord: string;
     decisionInput: string;
     decisionPolicyVersion: string;
@@ -304,6 +344,9 @@ export interface Copy {
     decisionOutcome: string;
     investigationFooter: string;
     outcomeExecuted: string;
+    outcomeBlockedShort: string;
+    outcomeDeclinedShort: string;
+    outcomeWithdrawnShort: string;
     outcomeFailedAt: (stage: string) => string;
   };
   languageSwitcher: {

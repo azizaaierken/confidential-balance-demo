@@ -59,10 +59,10 @@ export function ActivityRow({
         </p>
       </div>
       <div className="shrink-0 text-right">
-        {entry.type === "confidential_transfer" ? (
-          canSee && entry.confidential?.disclosedAmount != null ? (
+        {entry.privacy === "confidential" ? (
+          canSee && entry.partyVisibleAmount != null ? (
             <p className="text-sm font-semibold text-ink-900">
-              {formatAmount(entry.confidential.disclosedAmount)} {MINT.symbol}
+              {formatAmount(entry.partyVisibleAmount)} {MINT.symbol}
             </p>
           ) : (
             <p className="flex items-center justify-end gap-1 text-sm font-medium text-ink-400">
