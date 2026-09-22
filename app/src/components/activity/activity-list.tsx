@@ -4,22 +4,22 @@ import { ActivityEntry, Role } from "@/lib/types";
 import { usePagination } from "@/lib/use-pagination";
 import { PaginationControls } from "@/components/ui/pagination-controls";
 import { ActivityRow } from "./activity-row";
+import { useCopy } from "@/lib/i18n/use-copy";
 
 export function ActivityList({
   entries,
   role,
   ownerAccountId,
-  emptyLabel = "No activity yet.",
 }: {
   entries: ActivityEntry[];
   role: Role;
   ownerAccountId: string;
-  emptyLabel?: string;
 }) {
+  const c = useCopy();
   const { paged, ...pagination } = usePagination(entries);
 
   if (entries.length === 0) {
-    return <p className="px-5 py-8 text-center text-sm text-ink-500">{emptyLabel}</p>;
+    return <p className="px-5 py-8 text-center text-sm text-ink-500">{c.activity.emptyLabel}</p>;
   }
 
   return (

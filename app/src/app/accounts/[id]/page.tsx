@@ -14,7 +14,7 @@ import { ActivityList } from "@/components/activity/activity-list";
 import { SendTransferDrawer } from "@/components/flows/send-transfer-drawer";
 import { DepositWithdrawDrawer } from "@/components/flows/deposit-withdraw-drawer";
 import { useDemoStore } from "@/store/demo-store";
-import { findPersona, MINT } from "@/lib/mock-data";
+import { findPersona, MINT } from "@/lib/entities";
 import { formatAmount, shortenAddress } from "@/lib/format";
 import { canSeeAccountConfidentialBalance } from "@/lib/permissions";
 import { ArrowDownCircle, ShieldCheck, ArrowRight } from "lucide-react";

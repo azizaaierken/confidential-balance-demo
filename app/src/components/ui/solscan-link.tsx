@@ -7,9 +7,9 @@ function solscanUrl(kind: "tx" | "account", value: string): string {
   return `https://solscan.io/${kind === "tx" ? "tx" : "account"}/${value}?cluster=devnet`;
 }
 
-// With a real signature/address, this is a real devnet Solscan link. Without
-// one (still-simulated data paths), it stays a disabled, tooltipped
-// placeholder rather than a link to nothing.
+// With a signature/address, this is a real devnet Solscan link. Without one
+// (an entry the backend recorded no signature for), it stays a disabled,
+// tooltipped placeholder rather than a link to nothing.
 export function SolscanLink({
   size = "md",
   signature,

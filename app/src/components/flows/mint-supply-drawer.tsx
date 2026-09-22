@@ -7,7 +7,7 @@ import { WarningNote, StatusBadge } from "@/components/ui/badge";
 import { EvidenceDisclosure, EvidenceRow } from "@/components/ui/evidence-disclosure";
 import { SolscanLink } from "@/components/ui/solscan-link";
 import { useDemoStore } from "@/store/demo-store";
-import { MINT, PERSONAS } from "@/lib/mock-data";
+import { MINT, PERSONAS } from "@/lib/entities";
 import { ActivityEntry } from "@/lib/types";
 import { formatAmount, shortenAddress } from "@/lib/format";
 import { useCopy } from "@/lib/i18n/use-copy";
@@ -105,12 +105,12 @@ export function MintSupplyDrawer({ open, onClose }: { open: boolean; onClose: ()
             {c.mint.resultConfirmed}
           </div>
           <EvidenceDisclosure label={c.mint.evidenceTitle} defaultOpen>
-            <EvidenceRow label="Signature" value={result.signature} />
+            <EvidenceRow label={c.evidence.signatureLabel} value={result.signature} />
             <EvidenceRow
               label={c.depositWithdraw.publicAmountLabel}
               value={`${formatAmount(result.publicAmount ?? 0)} ${MINT.symbol}`}
             />
-            <EvidenceRow label="Program activity" value={result.programActivity.join(", ")} />
+            <EvidenceRow label={c.evidence.programActivityLabel} value={result.programActivity.join(", ")} />
           </EvidenceDisclosure>
           <SolscanLink signature={result.signature} />
         </div>

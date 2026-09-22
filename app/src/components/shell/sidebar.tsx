@@ -5,13 +5,12 @@ import { usePathname, useRouter } from "next/navigation";
 import { clsx } from "clsx";
 import {
   LayoutDashboard,
-  // Bot, // Agent Payments nav (disabled)
   ShieldCheck,
   ShieldQuestion,
   RotateCcw,
 } from "lucide-react";
 import { useDemoStore } from "@/store/demo-store";
-import { PERSONAS, MINT } from "@/lib/mock-data";
+import { PERSONAS, MINT } from "@/lib/entities";
 import { Avatar } from "@/components/ui/avatar";
 import { shortenAddress } from "@/lib/format";
 import { useCopy } from "@/lib/i18n/use-copy";
@@ -30,8 +29,6 @@ export function Sidebar() {
     { href: "/", label: c.nav.dashboard, icon: LayoutDashboard },
     { href: "/audit", label: c.nav.audit, icon: ShieldCheck },
   ];
-  // Agent Payments is disabled for client-facing demos (not reusable). Kept commented out rather than deleted.
-  // const AGENT_NAV = [{ href: "/agent", label: c.nav.agent, icon: Bot }];
 
   const NETWORK_LABEL: Record<string, { text: string; dotClass: string; icon: React.ElementType }> = {
     connected: { text: c.common.devnetConnected, dotClass: "bg-success-500", icon: ShieldCheck },
@@ -95,12 +92,6 @@ export function Sidebar() {
           })}
         </ul>
 
-        {/* Agent Payments section (disabled for client-facing demos)
-        <p className="hidden px-2 pb-2 pt-5 text-xs font-semibold uppercase tracking-wide text-ink-400 xl:block">
-          {c.nav.agentSection}
-        </p>
-        <NavLinkList items={AGENT_NAV} pathname={pathname} />
-        */}
       </nav>
 
       <div className="flex flex-col gap-2 border-t border-border-subtle px-2 py-3 xl:px-3">

@@ -1,8 +1,7 @@
 // Thin fetch wrapper over the Rust devnet backend (rust-service/). Every
 // signing key and the auditor secret live there, never in the browser — this
-// client only ever sees plaintext amounts the backend has already decided are
-// safe to hand back (matching the same permission model the UI already
-// applies on top of the previously-simulated data).
+// client only ever sees plaintext amounts the backend has already decided
+// (from the auth tokens sent with the request) are safe to hand back.
 
 import {
   AccountBalanceState,
@@ -81,6 +80,7 @@ interface RawMint {
   programId: string;
   zkProofProgramId: string;
   confidentialTransferAuthority: string;
+  feePayer: string;
   extensions: string[];
   autoApproveNewAccounts: boolean;
   cluster: string;
@@ -123,7 +123,6 @@ interface RawActivityEntry {
   auditorCiphertextHiHex?: string;
   disclosedAmountUi?: number;
   partyVisibleAmountUi?: number;
-  originAgentProposalId?: string;
 }
 
 interface RawAuditDisclosure {
@@ -202,7 +201,6 @@ function toActivityEntry(a: RawActivityEntry): ActivityEntry {
       : undefined,
     programActivity: programActivityFor(a.type),
     proofAccountRef: a.signatures.length > 1 ? a.signatures[0] : undefined,
-    originAgentProposalId: a.originAgentProposalId,
     steps: (a.steps ?? []).map(
       (s): EvidenceStep => ({
         label: s.label as EvidenceStep["label"],
@@ -251,9 +249,10 @@ function mapState(raw: RawState): BackendState {
       programId: raw.mint.programId,
       zkProofProgramId: raw.mint.zkProofProgramId,
       confidentialTransferAuthority: raw.mint.confidentialTransferAuthority,
+      feePayer: raw.mint.feePayer,
       extensions: raw.mint.extensions,
       autoApproveNewAccounts: raw.mint.autoApproveNewAccounts,
-      cluster: "devnet",
+      cluster: raw.mint.cluster,
     },
     totalSupply: raw.totalSupply,
     balances,
@@ -321,12 +320,11 @@ export async function confidentialTransfer(
   fromAccountId: string,
   toAccountId: string,
   amount: number,
-  originAgentProposalId?: string,
   tokens?: AuthTokens
 ) {
   const raw = await request<RawActionResponse>(
     "/transfer",
-    { method: "POST", body: JSON.stringify({ fromAccountId, toAccountId, amount, originAgentProposalId }) },
+    { method: "POST", body: JSON.stringify({ fromAccountId, toAccountId, amount }) },
     tokens
   );
   return { signature: raw.signature, signatures: raw.signatures, state: mapState(raw.state) };

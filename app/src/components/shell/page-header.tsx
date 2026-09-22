@@ -16,7 +16,7 @@ export function PageHeader({
   subtitle: string;
   actions?: React.ReactNode;
   // The connected-wallet chip only means something on pages where it's
-  // actually the signer for something (account pages, agent payments). The
+  // actually the signer for something (the account pages). The
   // Main Console never grants owner authority, so it hides this chip rather
   // than implying a signed-in identity that has no effect there.
   showWallet?: boolean;

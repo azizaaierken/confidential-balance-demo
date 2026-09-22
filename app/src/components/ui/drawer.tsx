@@ -3,6 +3,7 @@
 import { X } from "lucide-react";
 import { useEffect } from "react";
 import { createPortal } from "react-dom";
+import { useCopy } from "@/lib/i18n/use-copy";
 
 export function Drawer({
   open,
@@ -19,6 +20,7 @@ export function Drawer({
   children: React.ReactNode;
   footer?: React.ReactNode;
 }) {
+  const c = useCopy();
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -51,7 +53,7 @@ export function Drawer({
           </div>
           <button
             onClick={onClose}
-            aria-label="Close"
+            aria-label={c.common.close}
             className="rounded-lg p-1.5 text-ink-500 hover:bg-ink-900/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600"
           >
             <X size={18} />

@@ -1,10 +1,10 @@
 import { ArrowDownLeft, ArrowUpRight, RefreshCw, Lock, Coins } from "lucide-react";
 import { ActivityEntry, Role } from "@/lib/types";
 import { StatusBadge, PrivacyBadge } from "@/components/ui/badge";
-import { findPersona } from "@/lib/mock-data";
+import { findPersona } from "@/lib/entities";
 import { formatAmount, formatTimestamp, shortenAddress } from "@/lib/format";
 import { canSeeConfidentialAmount } from "@/lib/permissions";
-import { MINT } from "@/lib/mock-data";
+import { MINT } from "@/lib/entities";
 import { useCopy } from "@/lib/i18n/use-copy";
 import { SolscanIconLink } from "@/components/ui/solscan-link";
 

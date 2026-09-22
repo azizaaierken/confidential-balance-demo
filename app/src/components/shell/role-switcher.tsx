@@ -13,7 +13,7 @@ export function RoleSwitcher() {
   return (
     <div
       role="tablist"
-      aria-label="Viewing perspective"
+      aria-label={c.roleSwitcher.label}
       className="inline-flex items-center rounded-lg border border-border-strong bg-white p-1"
     >
       <button

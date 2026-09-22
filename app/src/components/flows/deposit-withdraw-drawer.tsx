@@ -8,7 +8,7 @@ import { EvidenceDisclosure, EvidenceRow } from "@/components/ui/evidence-disclo
 import { EvidenceSteps, expandEvidenceSteps } from "@/components/ui/evidence-steps";
 import { SolscanLink } from "@/components/ui/solscan-link";
 import { useDemoStore } from "@/store/demo-store";
-import { MINT } from "@/lib/mock-data";
+import { MINT } from "@/lib/entities";
 import { ActivityEntry } from "@/lib/types";
 import { formatAmount } from "@/lib/format";
 import { useCopy } from "@/lib/i18n/use-copy";
@@ -126,12 +126,12 @@ export function DepositWithdrawDrawer({
             {c.depositWithdraw.resultConfirmed(capitalize(directionWord))}
           </div>
           <EvidenceDisclosure label={c.depositWithdraw.evidenceTitle} defaultOpen>
-            <EvidenceRow label="Signature" value={result.signature} />
+            <EvidenceRow label={c.evidence.signatureLabel} value={result.signature} />
             <EvidenceRow
               label={c.depositWithdraw.publicAmountLabel}
               value={`${formatAmount(result.publicAmount ?? 0)} ${MINT.symbol}`}
             />
-            <EvidenceRow label="Program activity" value={result.programActivity.join(", ")} />
+            <EvidenceRow label={c.evidence.programActivityLabel} value={result.programActivity.join(", ")} />
           </EvidenceDisclosure>
 
           <EvidenceSteps

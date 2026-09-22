@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 const DEFAULT_PAGE_SIZE = 5;
 
 // Shared "5 items per page" logic for any list-shaped activity/history feed
-// in the app (Recent Activity, Audit Console's transfer/access-record/agent
+// in the app (Recent Activity, the Audit Console's transfer and access-record
 // lists, etc.) — one place to keep the page size and clamping logic
 // consistent instead of re-deriving it per list.
 export function usePagination<T>(items: T[], pageSize: number = DEFAULT_PAGE_SIZE) {

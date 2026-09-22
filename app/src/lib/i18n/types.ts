@@ -26,24 +26,29 @@ export interface Copy {
     passwordLabel: string;
     wrongPassword: string;
     unlock: string;
-    submit: string;
     retryButton: string;
     previousPage: string;
     nextPage: string;
     pageOf: (page: number, total: number) => string;
   };
+  shell: {
+    loading: string;
+    connecting: string;
+    slowConnect: string;
+    backendUnreachableTitle: string;
+    backendStartHint: string;
+  };
   nav: {
     dashboard: string;
-    agent: string;
     audit: string;
     operations: string;
     accounts: string;
-    agentSection: string;
     refreshFromDevnet: string;
     sender: string;
     receiver: string;
   };
   roleSwitcher: {
+    label: string;
     ownerView: string;
     publicView: string;
   };
@@ -53,7 +58,6 @@ export interface Copy {
     publicBalance: string;
     availableConfidential: string;
     pendingConfidential: string;
-    recentTransfers: string;
     sendTransfer: string;
     deposit: string;
     withdraw: string;
@@ -109,6 +113,7 @@ export interface Copy {
     withdrawLabel: string;
     confidentialTransferLabel: string;
     applyPendingLabel: string;
+    emptyLabel: string;
   };
   sendTransfer: {
     title: string;
@@ -116,7 +121,7 @@ export interface Copy {
     assetMint: string;
     sender: string;
     feePayer: string;
-    feePayerSuffix: string;
+    feePayerNote: string;
     receiver: string;
     amountLabel: string;
     availableBalance: (amount: string, symbol: string) => string;
@@ -128,21 +133,12 @@ export interface Copy {
     simulationFailed: (reason: string) => string;
     simulationUnavailable: (reason: string) => string;
     addressWarning: string;
-    negativePathSummary: string;
-    negativePathHint: string;
-    negativePathNone: string;
-    negativePathInsufficient: string;
-    negativePathProof: string;
-    negativePathWallet: string;
-    negativePathNetwork: string;
     reviewAndSign: string;
     waitingWalletTitle: string;
     waitingWalletBody: string;
     approveInWallet: string;
     stepProof: string;
-    stepWallet: string;
     stepSubmitted: string;
-    stepConfirmed: string;
     resultConfirmed: string;
     resultFailedAt: (stage: string) => string;
     evidenceTitle: string;
@@ -163,99 +159,6 @@ export interface Copy {
     evidenceTitle: string;
     publicAmountLabel: string;
   };
-  agent: {
-    title: string;
-    subtitle: string;
-    actingForLabel: string;
-    deploymentTitle: string;
-    deploymentSubtitle: string;
-    deploymentNote1: string;
-    deploymentNote2: string;
-    stageCustomerIntent: string;
-    stageBankAgent: string;
-    stageBankPolicy: string;
-    stageUnsignedTx: string;
-    stageWalletApproval: string;
-    stageDevnet: string;
-    newInstructionTitle: string;
-    newInstructionSubtitle: (payer: string) => string;
-    instructionPlaceholder: string;
-    proposeButton: string;
-    emptyState: string;
-    proposalSubtitle: string;
-    recipientLabel: string;
-    selectPlaceholder: string;
-    assetLabel: string;
-    amountLabel: string;
-    timingLabel: string;
-    setButton: string;
-    dataGivenTo: (component: string) => string;
-    dataComponentAgent: string;
-    dataComponentPolicyService: string;
-    dataComponentSigner: string;
-    runPolicyChecks: string;
-    humanApprovalNote: string;
-    negativePathHint: string;
-    negativePathNone: string;
-    negativePathWallet: string;
-    negativePathProof: string;
-    negativePathNetwork: string;
-    reject: string;
-    approve: string;
-    approving: string;
-    executedTitle: string;
-    failedTitle: string;
-    failedAtStage: (stage: string) => string;
-    openInvestigation: string;
-    abandonInstruction: string;
-    abandonedNote: string;
-    blockedByPolicyTitle: string;
-    declinedByOperatorTitle: string;
-    status: {
-      parsing: string;
-      needsClarification: string;
-      policyReview: string;
-      awaitingApproval: string;
-      approved: string;
-      rejected: string;
-      executing: string;
-      executed: string;
-      failed: string;
-      abandoned: string;
-    };
-    timing: {
-      immediate: string;
-      scheduledTomorrow: string;
-    };
-    ambiguity: {
-      recipientUnresolved: string;
-      amountUnresolved: string;
-    };
-  };
-  policy: {
-    recipientAllowlist: { name: string; pass: string; fail: string; failSelf: string };
-    availableBalance: { name: string; pass: string; fail: string; unknown: string };
-    dailyLimit: { name: string; detail: (limit: string) => string };
-    humanApproval: { name: string; detail: string };
-  };
-  dataItems: {
-    nlIntent: string;
-    parsedFields: string;
-    parsedRecipient: string;
-    parsedAmount: string;
-    senderLimits: string;
-    finalTx: string;
-    proofInputs: string;
-    feePayer: string;
-  };
-  failure: {
-    proposalParsing: string;
-    policyChecks: string;
-    proofGeneration: string;
-    walletApproval: string;
-    submission: string;
-    confirmation: string;
-  };
   evidence: {
     mint: string;
     deposit: string;
@@ -274,6 +177,10 @@ export interface Copy {
     part: (n: number) => string;
     stepsTitle: string;
     solscanGap: string;
+    signatureLabel: string;
+    programActivityLabel: string;
+    ciphertextLabel: string;
+    proofAccountLabel: string;
   };
   audit: {
     title: string;
@@ -287,6 +194,8 @@ export interface Copy {
     keyGenLabel: (n: number) => string;
     createdLabel: (date: string) => string;
     retiredLabel: (date: string) => string;
+    statusActive: string;
+    statusRetired: string;
     rotationNote: string;
     rotateConfirmTitle: string;
     rotateConfirmBody: string;
@@ -301,6 +210,7 @@ export interface Copy {
     requestDisclosure: string;
     closeButton: string;
     requestedByLabel: string;
+    defaultRequestedBy: string;
     reasonLabel: string;
     reasonPlaceholder: string;
     keyGenerationLabel: string;
@@ -311,6 +221,7 @@ export interface Copy {
     fullHistorySubtitle: string;
     fullHistorySelectLabel: string;
     fullHistoryReconstructButton: string;
+    fullHistoryReason: string;
     fullHistoryProgress: (done: number, total: number) => string;
     fullHistoryResultTitle: string;
     fullHistoryResultNote: (total: number) => string;
@@ -320,34 +231,6 @@ export interface Copy {
     logDisclosed: (by: string, activity: string, keyGen: string, reason: string) => string;
     logWrongKey: (by: string, activity: string) => string;
     logKeyActivated: (label: string, active: boolean) => string;
-    investigationTitle: string;
-    investigationSubtitle: string;
-    investigationSubtitleLocked: string;
-    investigationEmpty: string;
-    paymentEvidence: string;
-    decisionEvidence: string;
-    correlationRef: string;
-    decryptAmount: string;
-    noDecisionRecord: string;
-    blockedByPolicy: (checks: string) => string;
-    declinedByOperator: (by: string) => string;
-    abandonedBeforeReview: (customer: string) => string;
-    recipientUnresolved: string;
-    outcomeNotExecuted: string;
-    noTransactionOnChain: string;
-    revealDecisionRecord: string;
-    decisionInput: string;
-    decisionPolicyVersion: string;
-    decisionModelVersion: string;
-    decisionToolActions: string;
-    decisionApprovals: string;
-    decisionOutcome: string;
-    investigationFooter: string;
-    outcomeExecuted: string;
-    outcomeBlockedShort: string;
-    outcomeDeclinedShort: string;
-    outcomeWithdrawnShort: string;
-    outcomeFailedAt: (stage: string) => string;
   };
   languageSwitcher: {
     label: string;

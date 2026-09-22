@@ -12,7 +12,7 @@ import { MintSupplyDrawer } from "@/components/flows/mint-supply-drawer";
 import { SolscanIconLink } from "@/components/ui/solscan-link";
 import { CopyButton } from "@/components/ui/copy-button";
 import { useDemoStore } from "@/store/demo-store";
-import { PERSONAS, MINT } from "@/lib/mock-data";
+import { PERSONAS, MINT } from "@/lib/entities";
 import { formatAmount, shortenAddress } from "@/lib/format";
 import { Coins, RefreshCw, KeyRound } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -167,7 +167,7 @@ export default function DashboardPage() {
                       <p className="text-sm font-semibold text-ink-900">
                         {formatAmount(pb.publicBalance)} {MINT.symbol}
                       </p>
-                      <PrivacyBadge variant="encrypted" />
+                      <PrivacyBadge variant="public" />
                     </button>
                   </div>
                 );

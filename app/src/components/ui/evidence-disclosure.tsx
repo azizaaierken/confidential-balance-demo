@@ -5,11 +5,11 @@ import { ChevronDown, FlaskConical } from "lucide-react";
 import { clsx } from "clsx";
 
 export function EvidenceDisclosure({
-  label = "Technical details",
+  label,
   children,
   defaultOpen = false,
 }: {
-  label?: string;
+  label: string;
   children: React.ReactNode;
   defaultOpen?: boolean;
 }) {

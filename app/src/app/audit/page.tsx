@@ -4,13 +4,12 @@ import { useMemo, useState } from "react";
 import { PageHeader } from "@/components/shell/page-header";
 import { Card, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { PrivacyBadge } from "@/components/ui/badge";
 import { CiphertextChip } from "@/components/ui/ciphertext-chip";
 import { SolscanIconLink } from "@/components/ui/solscan-link";
 import { EvidenceSteps } from "@/components/ui/evidence-steps";
 import { PasswordPrompt } from "@/components/ui/password-prompt";
 import { useDemoStore } from "@/store/demo-store";
-import { findPersona, MINT, PERSONAS } from "@/lib/mock-data";
+import { findPersona, MINT, PERSONAS } from "@/lib/entities";
 import { formatAmount, formatTimestamp, shortenAddress } from "@/lib/format";
 import { usePagination } from "@/lib/use-pagination";
 import { PaginationControls } from "@/components/ui/pagination-controls";
@@ -20,14 +19,8 @@ import {
   KeyRound,
   ShieldCheck,
   History,
-  // ScrollText, // Agent payment investigations (disabled)
-  // FileQuestion, // Agent payment investigations (disabled)
 } from "lucide-react";
 import { useCopy } from "@/lib/i18n/use-copy";
-// Agent payment investigations (disabled) — only used by the commented-out section below.
-// import { Copy } from "@/lib/i18n";
-// import { DecisionRecord } from "@/lib/types";
-// import { policyCheckName, stageLabel } from "@/lib/i18n/helpers";
 
 export default function AuditConsolePage() {
   const c = useCopy();
@@ -187,10 +180,6 @@ export default function AuditConsolePage() {
 
         <FullHistoryReconstruction unlocked={unlocked} />
 
-        {/* Agent payment investigations (disabled for client-facing demos)
-        <AgentInvestigationSection unlocked={unlocked} />
-        */}
-
         <Card>
           <CardHeader title={c.audit.accessRecordTitle} subtitle={c.audit.accessRecordSubtitle} />
           <div className="flex flex-col gap-0">
@@ -283,8 +272,8 @@ function FullHistoryReconstruction({ unlocked }: { unlocked: boolean }) {
       const entry = undisclosed[i];
       await requestAuditDisclosure(
         entry.id,
-        "Auditor — M. Fung",
-        "Full transaction-history reconstruction",
+        c.audit.defaultRequestedBy,
+        c.audit.fullHistoryReason,
         entry.confidential!.auditorKeyGenerationId
       );
       setProgress({ done: i + 1, total: undisclosed.length });
@@ -388,225 +377,6 @@ function FullHistoryReconstruction({ unlocked }: { unlocked: boolean }) {
 // *without* a pipeline stage — withdrawn, declined — fell through the else and
 // reported itself as Executed. Success is the last branch here, reached only
 // when nothing else claimed the outcome, never as a fallback.
-// Agent Payments is disabled for client-facing demos (not reusable). Kept commented out rather than deleted.
-// Only used by AgentInvestigationSection below.
-// function decisionOutcomeLabel(c: Copy, record: DecisionRecord): string {
-//   if (record.blockedByPolicyChecks?.length) return c.audit.outcomeBlockedShort;
-//   if (record.declinedByOperator) return c.audit.outcomeDeclinedShort;
-//   if (record.abandoned) return c.audit.outcomeWithdrawnShort;
-//   // `policy_checks` deliberately isn't reached here — it's claimed above, and
-//   // stageLabel would render it as the proof step.
-//   if (record.outcome.stage) return c.audit.outcomeFailedAt(stageLabel(c, record.outcome.stage));
-//   if (record.outcome.failed) return c.audit.outcomeNotExecuted;
-//   return c.audit.outcomeExecuted;
-// }
-//
-// function AgentInvestigationSection({ unlocked }: { unlocked: boolean }) {
-//   const c = useCopy();
-//   const activity = useDemoStore((s) => s.activity);
-//   const decisionRecords = useDemoStore((s) => s.decisionRecords);
-//   const auditorKeyGenerations = useDemoStore((s) => s.auditorKeyGenerations);
-//   const requestAuditDisclosure = useDemoStore((s) => s.requestAuditDisclosure);
-//   const [revealedIds, setRevealedIds] = useState<Set<string>>(new Set());
-//   const [disclosingIds, setDisclosingIds] = useState<Set<string>>(new Set());
-//
-//   // A case is either side of the pair, joined where both exist — because the
-//   // two sources have opposite blind spots. A *failed* payment never reaches
-//   // the chain, so it has no activity entry and exists only as a decision
-//   // record; keying off activity alone would hide exactly what the Agent
-//   // Payments page sends an auditor here to investigate. But decision records
-//   // are client-side state that a page reload clears, while the activity entry
-//   // behind an *executed* payment is persisted server-side; keying off
-//   // decision records alone would make successful payments vanish on refresh.
-//   const agentCases = useMemo(() => {
-//     const fromRecords = decisionRecords.map((record) => ({
-//       key: record.id,
-//       record,
-//       entry:
-//         activity.find(
-//           (a) =>
-//             a.type === "confidential_transfer" &&
-//             a.originAgentProposalId === record.agentProposalId
-//         ) ?? null,
-//     }));
-//     const covered = new Set(decisionRecords.map((r) => r.agentProposalId));
-//     const orphanedTransfers = activity
-//       .filter(
-//         (a) =>
-//           a.type === "confidential_transfer" &&
-//           a.originAgentProposalId &&
-//           !covered.has(a.originAgentProposalId)
-//       )
-//       .map((entry) => ({ key: entry.id, record: null, entry }));
-//     return [...fromRecords, ...orphanedTransfers];
-//   }, [decisionRecords, activity]);
-//   // Two per page: each case is a tall two-panel card (payment evidence
-//   // beside decision evidence), so more than a pair at once buries the
-//   // sections below it.
-//   const agentPage = usePagination(agentCases, 2);
-//
-//   if (agentCases.length === 0) {
-//     return (
-//       <Card>
-//         <CardHeader title={c.audit.investigationTitle} subtitle={c.audit.investigationSubtitle} />
-//         <p className="px-5 py-6 text-center text-sm text-ink-500">{c.audit.investigationEmpty}</p>
-//       </Card>
-//     );
-//   }
-//
-//   return (
-//     <Card>
-//       <CardHeader
-//         title={c.audit.investigationTitle}
-//         subtitle={unlocked ? c.audit.investigationSubtitle : c.audit.investigationSubtitleLocked}
-//       />
-//       <div>
-//         {agentPage.paged.map(({ key, record, entry }) => {
-//           // At least one side is always present; prefer the record's own
-//           // copy of who paid whom, since it survives when the transfer doesn't.
-//           const from = findPersona(record?.fromAccountId ?? entry!.fromAccountId);
-//           const to = findPersona(record?.toAccountId ?? entry!.toAccountId);
-//           // Derived rather than read straight from state: re-locking the
-//           // console has to hide a record that was revealed a moment ago,
-//           // not leave it sitting there until something else re-renders.
-//           const revealed = unlocked && revealedIds.has(key);
-//           const gen = auditorKeyGenerations.find((g) => g.id === entry?.confidential?.auditorKeyGenerationId);
-//
-//           return (
-//             <div key={key} className="grid grid-cols-1 gap-4 border-b border-border-subtle px-5 py-5 last:border-b-0 lg:grid-cols-2">
-//               <div className="rounded-xl border border-border-subtle p-4">
-//                 <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-400">
-//                   <ShieldCheck size={13} /> {c.audit.paymentEvidence}
-//                 </p>
-//                 <p className="text-sm font-medium text-ink-900">
-//                   {/* An abandoned instruction may never have resolved one. */}
-//                   {from?.name} → {to?.name ?? c.audit.recipientUnresolved}
-//                 </p>
-//                 {entry ? (
-//                   <p className="mt-0.5 font-mono text-xs text-ink-400">
-//                     {shortenAddress(entry.signature, 6)} · {gen && c.audit.keyGenLabel(gen.generation)}
-//                   </p>
-//                 ) : (
-//                   // Nothing was submitted, so there is no signature, no
-//                   // ciphertext and nothing an auditor could disclose — the
-//                   // evidence here is that the payment never happened.
-//                   <p className="mt-0.5 text-xs text-ink-500">{c.audit.noTransactionOnChain}</p>
-//                 )}
-//                 <div className="mt-3">
-//                   {!entry ? (
-//                     <p className="text-sm font-medium text-danger-600">
-//                       {record?.blockedByPolicyChecks?.length ? (
-//                         // Its own verdict rather than the generic failure-stage
-//                         // line: this never got as far as a stage, and naming
-//                         // the checks is the whole substance of the record.
-//                         c.audit.blockedByPolicy(
-//                           record.blockedByPolicyChecks
-//                             .map((key) => policyCheckName(c, key))
-//                             .join(", ")
-//                         )
-//                       ) : record?.declinedByOperator ? (
-//                         c.audit.declinedByOperator(record.declinedByOperator.by)
-//                       ) : record?.abandoned ? (
-//                         // Attributed to the customer whose instruction it was,
-//                         // not to a person the demo can't identify.
-//                         c.audit.abandonedBeforeReview(from?.name ?? "")
-//                       ) : record?.outcome.stage ? (
-//                         c.audit.outcomeFailedAt(stageLabel(c, record.outcome.stage))
-//                       ) : (
-//                         c.audit.outcomeNotExecuted
-//                       )}
-//                     </p>
-//                   ) : entry.confidential?.disclosedAmount != null ? (
-//                     <p className="text-sm font-semibold text-ink-900">
-//                       {formatAmount(entry.confidential.disclosedAmount)} {MINT.symbol}
-//                     </p>
-//                   ) : (
-//                     <Button
-//                       size="sm"
-//                       variant="secondary"
-//                       disabled={!unlocked || disclosingIds.has(entry.id)}
-//                       onClick={async () => {
-//                         setDisclosingIds((s) => new Set(s).add(entry.id));
-//                         try {
-//                           await requestAuditDisclosure(
-//                             entry.id,
-//                             "Auditor — M. Fung",
-//                             "Combined investigation",
-//                             entry.confidential!.auditorKeyGenerationId
-//                           );
-//                         } finally {
-//                           setDisclosingIds((s) => {
-//                             const next = new Set(s);
-//                             next.delete(entry.id);
-//                             return next;
-//                           });
-//                         }
-//                       }}
-//                     >
-//                       {disclosingIds.has(entry.id) ? c.common.processing : c.audit.decryptAmount}
-//                     </Button>
-//                   )}
-//                 </div>
-//                 {record && (
-//                   <p className="mt-3 text-xs text-ink-500">
-//                     {c.audit.correlationRef} <span className="font-mono">{record.correlationRef}</span>
-//                   </p>
-//                 )}
-//               </div>
-//
-//               <div className="rounded-xl border border-border-subtle p-4">
-//                 <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-400">
-//                   <ScrollText size={13} /> {c.audit.decisionEvidence}
-//                 </p>
-//                 {!record ? (
-//                   <p className="flex items-center gap-1.5 text-sm text-ink-500">
-//                     <FileQuestion size={14} /> {c.audit.noDecisionRecord}
-//                   </p>
-//                 ) : !revealed ? (
-//                   <Button
-//                     size="sm"
-//                     variant="secondary"
-//                     disabled={!unlocked}
-//                     onClick={() => setRevealedIds((s) => new Set(s).add(key))}
-//                   >
-//                     {c.audit.revealDecisionRecord}
-//                   </Button>
-//                 ) : (
-//                   <div className="flex flex-col gap-1.5 text-xs text-ink-700">
-//                     <p><span className="text-ink-400">{c.audit.decisionInput}</span> {record.input}</p>
-//                     <p><span className="text-ink-400">{c.audit.decisionPolicyVersion}</span> {record.policyVersion}</p>
-//                     <p><span className="text-ink-400">{c.audit.decisionModelVersion}</span> {record.modelVersion}</p>
-//                     <p><span className="text-ink-400">{c.audit.decisionToolActions}</span> {record.toolActions.join(" → ")}</p>
-//                     <p>
-//                       <span className="text-ink-400">{c.audit.decisionApprovals}</span>{" "}
-//                       {record.approvals.map((a) => `${a.by} (${a.role})`).join(", ")}
-//                     </p>
-//                     <p>
-//                       <span className="text-ink-400">{c.audit.decisionOutcome}</span>{" "}
-//                       {decisionOutcomeLabel(c, record)}
-//                     </p>
-//                   </div>
-//                 )}
-//               </div>
-//             </div>
-//           );
-//         })}
-//       </div>
-//       {agentPage.showControls && (
-//         <PaginationControls
-//           page={agentPage.page}
-//           pageCount={agentPage.pageCount}
-//           hasPrev={agentPage.hasPrev}
-//           hasNext={agentPage.hasNext}
-//           onPrev={agentPage.prev}
-//           onNext={agentPage.next}
-//         />
-//       )}
-//       <p className="border-t border-border-subtle px-5 py-3 text-xs text-ink-400">{c.audit.investigationFooter}</p>
-//     </Card>
-//   );
-// }
-
 function KeyTimeline({
   generations,
   unlocked,
@@ -711,7 +481,15 @@ function KeyTimeline({
                 {g.retiredAt ? ` · ${c.audit.retiredLabel(formatTimestamp(g.retiredAt))}` : ""}
               </p>
             </div>
-            <PrivacyBadge variant={g.status === "active" ? "on-chain-evidence" : "demo-simulation"} />
+            {/* Both are real on-chain key registrations; only one is current. */}
+            <span
+              className={clsx(
+                "rounded-full px-2 py-0.5 text-[11px] font-medium",
+                g.status === "active" ? "bg-success-50 text-success-600" : "bg-ink-900/5 text-ink-500"
+              )}
+            >
+              {g.status === "active" ? c.audit.statusActive : c.audit.statusRetired}
+            </span>
           </div>
         ))}
         <p className="text-xs text-ink-400">{c.audit.rotationNote}</p>
@@ -732,7 +510,7 @@ function DisclosureForm({
   onSubmit: (requestedBy: string, reason: string, keyGenerationId: string) => Promise<unknown>;
 }) {
   const c = useCopy();
-  const [requestedBy, setRequestedBy] = useState("Auditor — M. Fung");
+  const [requestedBy, setRequestedBy] = useState(c.audit.defaultRequestedBy);
   const [reason, setReason] = useState("");
   const [keyGenerationId, setKeyGenerationId] = useState(defaultKeyGenerationId);
   const [submitted, setSubmitted] = useState(false);

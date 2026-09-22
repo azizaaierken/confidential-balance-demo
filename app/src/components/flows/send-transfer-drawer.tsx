@@ -8,7 +8,7 @@ import { WarningNote, StatusBadge } from "@/components/ui/badge";
 import * as backend from "@/lib/backend/client";
 import { EvidenceDisclosure, EvidenceRow } from "@/components/ui/evidence-disclosure";
 import { useDemoStore } from "@/store/demo-store";
-import { MINT, PERSONAS } from "@/lib/mock-data";
+import { MINT, PERSONAS } from "@/lib/entities";
 import { ActivityEntry, FailureStage } from "@/lib/types";
 import { formatAmount, shortenAddress } from "@/lib/format";
 import { ShieldAlert } from "lucide-react";
@@ -28,13 +28,16 @@ type SimulationState =
 
 const LAMPORTS_PER_SOL = 1_000_000_000;
 
+// A confidential transfer is one V1 transaction: the backend generates the
+// three proofs, builds the transaction, then submits and waits for
+// confirmation in a single call. The tracker shows exactly those two phases
+// and nothing the UI can't actually observe — there is no wallet step (the
+// backend signs with the persona's demo keypair) and no separate "submitted"
+// moment distinct from confirmation.
 const STAGE_TO_STEP_INDEX: Record<FailureStage, number> = {
-  proposal_parsing: 0,
-  policy_checks: 0,
   proof_generation: 0,
-  wallet_approval: 1,
-  submission: 2,
-  confirmation: 3,
+  submission: 1,
+  confirmation: 1,
 };
 
 export function SendTransferDrawer({
@@ -52,17 +55,14 @@ export function SendTransferDrawer({
   const connectedWallet = useDemoStore((s) => s.connectedWalletAddress);
 
   const STEPS: TrackerStep[] = [
-    { key: "proof", label: c.sendTransfer.stepProof },
-    { key: "wallet", label: c.sendTransfer.stepWallet },
-    { key: "submitted", label: c.sendTransfer.stepSubmitted },
-    { key: "confirmed", label: c.sendTransfer.stepConfirmed },
+    { key: "build", label: c.sendTransfer.stepProof },
+    { key: "confirm", label: c.sendTransfer.stepSubmitted },
   ];
 
   const recipients = PERSONAS.filter((p) => p.id !== fromAccountId);
   const [toId, setToId] = useState(recipients[0]?.id ?? "");
   const [amount, setAmount] = useState("");
   const [step, setStep] = useState<FlowStep>("review");
-  const [trackerIndex, setTrackerIndex] = useState(0);
   const [result, setResult] = useState<ActivityEntry | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [failureStage, setFailureStage] = useState<FailureStage | null>(null);
@@ -136,7 +136,6 @@ export function SendTransferDrawer({
   function handleClose() {
     setStep("review");
     setAmount("");
-    setTrackerIndex(0);
     setResult(null);
     setError(null);
     setFailureStage(null);
@@ -148,38 +147,32 @@ export function SendTransferDrawer({
     setStep("signing");
   }
 
-  async function approveInWallet() {
+  async function submitTransfer() {
     setStep("progress");
-    setTrackerIndex(0);
-
-    // Real proof generation + submission takes several real devnet
-    // round-trips (multiple transactions) — advance through the first three
-    // stages on a fixed cadence while the request is in flight, then jump to
-    // "Confirmed" only once the real result actually lands.
-    let i = 0;
-    const ticker = setInterval(() => {
-      if (i < STEPS.length - 1) {
-        i += 1;
-        setTrackerIndex(i);
-      }
-    }, 1200);
-
     try {
       const entry = await confidentialTransfer(fromAccountId, toId, numericAmount);
-      clearInterval(ticker);
-      setTrackerIndex(STEPS.length);
       setResult(entry);
       setStep("result");
     } catch (e) {
-      clearInterval(ticker);
       const message = e instanceof Error ? e.message : String(e);
-      const stage = classifyFailure(message);
-      setTrackerIndex(STAGE_TO_STEP_INDEX[stage]);
-      setFailureStage(stage);
+      setFailureStage(classifyFailure(message));
       setError(message);
       setStep("result");
     }
   }
+
+  // While the request is in flight the UI genuinely cannot tell which phase
+  // the backend is in, so the first step stays active until the whole call
+  // returns. On success both steps are done; on failure the classified stage
+  // decides which one is marked failed.
+  const trackerIndex =
+    step === "progress"
+      ? 0
+      : result
+        ? STEPS.length
+        : failureStage
+          ? STAGE_TO_STEP_INDEX[failureStage]
+          : 0;
 
   const footer =
     step === "review" ? (
@@ -199,7 +192,7 @@ export function SendTransferDrawer({
         <Button variant="secondary" onClick={() => setStep("review")}>
           {c.common.back}
         </Button>
-        <Button onClick={approveInWallet}>{c.sendTransfer.approveInWallet}</Button>
+        <Button onClick={submitTransfer}>{c.sendTransfer.approveInWallet}</Button>
       </div>
     ) : step === "result" ? (
       <div className="flex justify-end">
@@ -234,9 +227,8 @@ export function SendTransferDrawer({
             </div>
             <div>
               <p className="text-ink-500">{c.sendTransfer.feePayer}</p>
-              <p className="font-medium text-ink-900">
-                {fromPersona?.name} {c.sendTransfer.feePayerSuffix}
-              </p>
+              <p className="font-mono text-ink-900">{shortenAddress(MINT.feePayer)}</p>
+              <p className="text-xs text-ink-500">{c.sendTransfer.feePayerNote}</p>
             </div>
           </div>
 
@@ -340,13 +332,13 @@ export function SendTransferDrawer({
           </div>
 
           <EvidenceDisclosure label={c.sendTransfer.evidenceTitle} defaultOpen>
-            <EvidenceRow label="Signature" value={result.signature} />
-            <EvidenceRow label="Program activity" value={result.programActivity.join(", ")} />
+            <EvidenceRow label={c.evidence.signatureLabel} value={result.signature} />
+            <EvidenceRow label={c.evidence.programActivityLabel} value={result.programActivity.join(", ")} />
             {result.confidential && (
-              <EvidenceRow label="Ciphertext" value={result.confidential.ciphertext} />
+              <EvidenceRow label={c.evidence.ciphertextLabel} value={result.confidential.ciphertext} />
             )}
             {result.proofAccountRef && (
-              <EvidenceRow label="Proof account" value={result.proofAccountRef} />
+              <EvidenceRow label={c.evidence.proofAccountLabel} value={result.proofAccountRef} />
             )}
           </EvidenceDisclosure>
 

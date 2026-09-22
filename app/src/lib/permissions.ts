@@ -2,7 +2,7 @@ import { ActivityEntry, Role } from "./types";
 
 // Centralizes "who can see what" so no page has to re-derive privacy rules.
 // A public observer never sees a confidential amount, full stop — even one an
-// auditor has separately disclosed elsewhere in the app (SEC-08 / risk table).
+// auditor has separately disclosed elsewhere in the app.
 
 export function canSeeConfidentialAmount(
   entry: ActivityEntry,
