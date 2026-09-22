@@ -62,14 +62,19 @@ export function ActivityRow({
       </div>
       <div className="shrink-0 text-right">
         {entry.privacy === "confidential" ? (
-          canSee && entry.partyVisibleAmount != null ? (
-            <p className="text-sm font-semibold text-ink-900">
-              {formatAmount(entry.partyVisibleAmount)} {MINT.symbol}
-            </p>
-          ) : canSee && loading ? (
+          // Loading wins over an amount already in hand: a transfer's amount
+          // may be present from the *other* party's view being on, while
+          // this account's own entries still wait for their fetch. Showing
+          // the skeleton for every row until it lands keeps them moving
+          // together instead of one row leading the rest.
+          canSee && loading ? (
             <p aria-busy="true" className="flex items-center justify-end gap-2 text-ink-400">
               <Loader2 size={12} className="animate-spin motion-reduce:animate-none" />
               <span className="h-4 w-16 animate-pulse rounded bg-ink-900/10 motion-reduce:animate-none" />
+            </p>
+          ) : canSee && entry.partyVisibleAmount != null ? (
+            <p className="text-sm font-semibold text-ink-900">
+              {formatAmount(entry.partyVisibleAmount)} {MINT.symbol}
             </p>
           ) : (
             <p className="flex items-center justify-end gap-1 text-sm font-medium text-ink-400">
