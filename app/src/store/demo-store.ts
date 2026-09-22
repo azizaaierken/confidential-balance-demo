@@ -5,7 +5,6 @@ import {
   AuditDisclosure,
   AuditorKeyGeneration,
   NetworkStatus,
-  Role,
 } from "@/lib/types";
 import { hydrateMintAndPersonas, RECEIVER, SENDER } from "@/lib/entities";
 import * as backend from "@/lib/backend/client";
@@ -13,7 +12,6 @@ import { Locale } from "@/lib/i18n";
 import { setActiveLocale } from "@/lib/locale";
 
 interface DemoState {
-  role: Role;
   ownerAccountId: string;
   network: NetworkStatus;
   language: Locale;
@@ -24,24 +22,22 @@ interface DemoState {
   auditorKeyGenerations: AuditorKeyGeneration[];
   auditDisclosures: AuditDisclosure[];
 
-  // Memory-only — never persisted, so a reload always starts logged out
-  // (see rust-service/src/auth.rs; the backend redacts confidential fields
-  // and disclosure records for any request that doesn't present the right
-  // one of these).
-  authTokens: backend.AuthTokens;
+  // Which roles the viewer has switched on. Memory-only, so a reload always
+  // starts as a public observer. Sent to the backend on every request; it
+  // redacts confidential fields and disclosure records for whatever is off
+  // (see rust-service/src/auth.rs). A demo switch, not a credential.
+  viewRoles: backend.ViewRoles;
 
   backendReady: boolean;
   backendError: string | null;
 
-  setRole: (role: Role) => void;
   setOwnerAccountId: (id: string) => void;
   setNetwork: (status: NetworkStatus) => void;
   setLanguage: (language: Locale) => void;
   hydrate: () => Promise<void>;
   reset: () => Promise<void>;
 
-  login: (role: backend.AuthRole, password: string) => Promise<void>;
-  logout: (role: backend.AuthRole) => void;
+  setViewRole: (role: backend.ViewRole, on: boolean) => Promise<void>;
 
   mintSupply: (accountId: string, amount: number) => Promise<ActivityEntry>;
   deposit: (accountId: string, amount: number) => Promise<ActivityEntry>;
@@ -55,7 +51,7 @@ interface DemoState {
     reason: string,
     useKeyGenerationId: string
   ) => Promise<AuditDisclosure>;
-  rotateAuditorKey: (confirmPassword: string) => Promise<AuditorKeyGeneration>;
+  rotateAuditorKey: () => Promise<AuditorKeyGeneration>;
 }
 
 function applyBackendState(state: backend.BackendState) {
@@ -69,24 +65,21 @@ function applyBackendState(state: backend.BackendState) {
   };
 }
 
-// Locking a persona (relock, or the "Refresh from devnet" reset) drops its
-// auth token immediately — but without this, the previously-decrypted
-// balances/amounts already sitting in the store from before the lock stay
-// exactly as they were until the background `hydrate()` below finishes its
-// real devnet round trip (a confirmed ~1-3s gap): the UI would show "Unlock
-// owner access" right next to a still-visible decrypted figure from a
-// moment ago. This redacts client-side state to match `tokens` in the same
-// tick the token itself is cleared, so there's no window where they
-// disagree; `hydrate()` then reconfirms (or, if a different token is still
-// held, re-reveals) it for real.
-export function redactForTokens(
+// Switching a role off (or the "Refresh from devnet" reset) takes effect
+// immediately — but without this, the previously-decrypted balances/amounts
+// already sitting in the store stay exactly as they were until the
+// background `hydrate()` finishes its real devnet round trip (a confirmed
+// ~1-3s gap): the UI would show the public view right next to a
+// still-visible decrypted figure from a moment ago. This redacts client-side
+// state to match `roles` in the same tick the switch flips, so there's no
+// window where they disagree; `hydrate()` then reconfirms it for real.
+export function redactForRoles(
   balances: Record<string, AccountBalanceState>,
   activity: ActivityEntry[],
-  tokens: backend.AuthTokens
+  roles: backend.ViewRoles
 ): { balances: Record<string, AccountBalanceState>; activity: ActivityEntry[] } {
   const holds = (accountId: string) =>
-    (accountId === "sender" && Boolean(tokens.sender)) ||
-    (accountId === "receiver" && Boolean(tokens.receiver));
+    (accountId === "sender" && roles.sender) || (accountId === "receiver" && roles.receiver);
 
   const redactedBalances = Object.fromEntries(
     Object.entries(balances).map(([id, b]) =>
@@ -111,7 +104,7 @@ export function redactForTokens(
       confidential: a.confidential
         ? {
             ...a.confidential,
-            disclosedAmount: tokens.auditor ? a.confidential.disclosedAmount : undefined,
+            disclosedAmount: roles.auditor ? a.confidential.disclosedAmount : undefined,
           }
         : a.confidential,
     };
@@ -126,7 +119,6 @@ function activeAuditorKeyGeneration(gens: AuditorKeyGeneration[]): AuditorKeyGen
 }
 
 export const useDemoStore = create<DemoState>((set, get) => ({
-  role: "owner",
   ownerAccountId: SENDER.id,
   network: "connected",
   language: "en",
@@ -136,11 +128,10 @@ export const useDemoStore = create<DemoState>((set, get) => ({
   activity: [],
   auditorKeyGenerations: [],
   auditDisclosures: [],
-  authTokens: {},
+  viewRoles: backend.NO_ROLES,
   backendReady: false,
   backendError: null,
 
-  setRole: (role) => set({ role }),
   setOwnerAccountId: (id) =>
     set({
       ownerAccountId: id,
@@ -154,7 +145,7 @@ export const useDemoStore = create<DemoState>((set, get) => ({
 
   hydrate: async () => {
     try {
-      const state = await backend.fetchState(get().authTokens);
+      const state = await backend.fetchState(get().viewRoles);
       set({ ...applyBackendState(state), backendReady: true, backendError: null });
     } catch (e) {
       set({ backendReady: false, backendError: e instanceof Error ? e.message : String(e) });
@@ -164,40 +155,34 @@ export const useDemoStore = create<DemoState>((set, get) => ({
 
   reset: async () => {
     set((s) => ({
-      role: "owner",
       ownerAccountId: SENDER.id,
       network: "connected",
       connectedWalletAddress: SENDER.address,
-      authTokens: {},
-      ...redactForTokens(s.balances, s.activity, {}),
+      viewRoles: backend.NO_ROLES,
+      ...redactForRoles(s.balances, s.activity, backend.NO_ROLES),
     }));
     await get().hydrate();
   },
 
-  login: async (role, password) => {
-    const token = await backend.login(role, password);
-    // Fetch the freshly-unlocked state *before* flipping authTokens, so the
-    // UI never shows "unlocked" for the moment before the now-decryptable
-    // data has actually arrived (two real devnet RPC reads happen inside
-    // /state, so this isn't instant) — token and data land in one render.
-    const tokens = { ...get().authTokens, [role]: token };
-    const state = await backend.fetchState(tokens);
-    set({ authTokens: tokens, ...applyBackendState(state), backendReady: true, backendError: null });
-  },
-
-  logout: (role) => {
-    set((s) => {
-      const next = { ...s.authTokens };
-      delete next[role];
-      return { authTokens: next, ...redactForTokens(s.balances, s.activity, next) };
-    });
-    get().hydrate().catch(() => {
-      // surfaced via backendError already; relocking shouldn't throw further
-    });
+  setViewRole: async (role, on) => {
+    const roles = { ...get().viewRoles, [role]: on };
+    if (on) {
+      // Fetch the newly visible state *before* flipping the switch, so the UI
+      // never shows the owner/auditor view for the moment before the
+      // now-visible data has actually arrived (two real devnet RPC reads
+      // happen inside /state) — switch and data land in one render.
+      const state = await backend.fetchState(roles);
+      set({ viewRoles: roles, ...applyBackendState(state), backendReady: true, backendError: null });
+    } else {
+      set((s) => ({ viewRoles: roles, ...redactForRoles(s.balances, s.activity, roles) }));
+      await get().hydrate().catch(() => {
+        // surfaced via backendError already; switching a view off shouldn't throw further
+      });
+    }
   },
 
   mintSupply: async (accountId, amount) => {
-    const { signature, state } = await backend.mintSupply(accountId, amount, get().authTokens);
+    const { signature, state } = await backend.mintSupply(accountId, amount, get().viewRoles);
     set(applyBackendState(state));
     const entry = state.activity.find((a) => a.signature === signature);
     if (!entry) throw new Error("mint succeeded but activity entry was not found");
@@ -205,7 +190,7 @@ export const useDemoStore = create<DemoState>((set, get) => ({
   },
 
   deposit: async (accountId, amount) => {
-    const { signature, state } = await backend.deposit(accountId, amount, get().authTokens);
+    const { signature, state } = await backend.deposit(accountId, amount, get().viewRoles);
     set(applyBackendState(state));
     const entry = state.activity.find((a) => a.signature === signature);
     if (!entry) throw new Error("deposit succeeded but activity entry was not found");
@@ -213,7 +198,7 @@ export const useDemoStore = create<DemoState>((set, get) => ({
   },
 
   withdraw: async (accountId, amount) => {
-    const { signature, state } = await backend.withdraw(accountId, amount, get().authTokens);
+    const { signature, state } = await backend.withdraw(accountId, amount, get().viewRoles);
     set(applyBackendState(state));
     const entry = state.activity.find((a) => a.signature === signature);
     if (!entry) throw new Error("withdraw succeeded but activity entry was not found");
@@ -225,7 +210,7 @@ export const useDemoStore = create<DemoState>((set, get) => ({
       fromId,
       toId,
       amount,
-      get().authTokens
+      get().viewRoles
     );
     set(applyBackendState(state));
     const entry = state.activity.find((a) => a.signature === signature);
@@ -234,7 +219,7 @@ export const useDemoStore = create<DemoState>((set, get) => ({
   },
 
   applyPending: async (accountId) => {
-    const { state } = await backend.applyPending(accountId, get().authTokens);
+    const { state } = await backend.applyPending(accountId, get().viewRoles);
     set(applyBackendState(state));
   },
 
@@ -244,14 +229,14 @@ export const useDemoStore = create<DemoState>((set, get) => ({
       requestedBy,
       reason,
       useKeyGenerationId,
-      get().authTokens
+      get().viewRoles
     );
     set(applyBackendState(state));
     return disclosure;
   },
 
-  rotateAuditorKey: async (confirmPassword) => {
-    const state = await backend.rotateAuditorKey(confirmPassword, get().authTokens);
+  rotateAuditorKey: async () => {
+    const state = await backend.rotateAuditorKey(get().viewRoles);
     set(applyBackendState(state));
     return activeAuditorKeyGeneration(state.auditorKeyGenerations);
   },

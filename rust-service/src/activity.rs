@@ -47,8 +47,8 @@ pub struct ActivityEntry {
     // Persisted ground truth once an auditor actually runs `/auditor/disclose`
     // (see `set_disclosed_amount`) — but what a given `/state` response
     // actually carries here is redacted per-request in server.rs's
-    // `read_state`: stripped back to `None` unless the caller holds an
-    // auditor token. The Audit Console reads this field, and only this
+    // `read_state`: stripped back to `None` unless the caller is viewing as
+    // the auditor. The Audit Console reads this field, and only this
     // field, to mean "an auditor disclosed this" — it must never also carry
     // party-visibility (see `party_visible_amount_ui` below), or the console
     // would show an amount as "disclosed" that no auditor ever disclosed.
@@ -63,8 +63,8 @@ pub struct ActivityEntry {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub party_amount_ui: Option<f64>,
     // Per-request redacted view of `party_amount_ui` above: set only when
-    // the caller's session holds an owner token for one of this transfer's
-    // own two parties, regardless of auditor status. Kept as a field
+    // the caller is viewing as the owner of one of this transfer's own two
+    // parties, regardless of auditor status. Kept as a field
     // distinct from `disclosed_amount_ui` on purpose — the account-detail
     // page (a party looking at their own history) reads this one; the Audit
     // Console must never read it, since a party seeing their own transfer

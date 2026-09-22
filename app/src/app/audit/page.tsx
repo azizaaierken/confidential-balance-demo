@@ -7,19 +7,13 @@ import { Button } from "@/components/ui/button";
 import { CiphertextChip } from "@/components/ui/ciphertext-chip";
 import { SolscanIconLink } from "@/components/ui/solscan-link";
 import { EvidenceSteps } from "@/components/ui/evidence-steps";
-import { PasswordPrompt } from "@/components/ui/password-prompt";
 import { useDemoStore } from "@/store/demo-store";
 import { findPersona, MINT, PERSONAS } from "@/lib/entities";
 import { formatAmount, formatTimestamp, shortenAddress } from "@/lib/format";
 import { usePagination } from "@/lib/use-pagination";
 import { PaginationControls } from "@/components/ui/pagination-controls";
 import { clsx } from "clsx";
-import {
-  Lock,
-  KeyRound,
-  ShieldCheck,
-  History,
-} from "lucide-react";
+import { Lock, KeyRound, ShieldCheck, History } from "lucide-react";
 import { useCopy } from "@/lib/i18n/use-copy";
 
 export default function AuditConsolePage() {
@@ -29,11 +23,18 @@ export default function AuditConsolePage() {
   const auditDisclosures = useDemoStore((s) => s.auditDisclosures);
   const requestAuditDisclosure = useDemoStore((s) => s.requestAuditDisclosure);
   const rotateAuditorKey = useDemoStore((s) => s.rotateAuditorKey);
-  const authTokens = useDemoStore((s) => s.authTokens);
-  const login = useDemoStore((s) => s.login);
-  const logout = useDemoStore((s) => s.logout);
+  const unlocked = useDemoStore((s) => s.viewRoles.auditor);
+  const setViewRole = useDemoStore((s) => s.setViewRole);
+  const [switching, setSwitching] = useState(false);
 
-  const unlocked = Boolean(authTokens.auditor);
+  async function toggleAuditorView() {
+    setSwitching(true);
+    try {
+      await setViewRole("auditor", !unlocked);
+    } finally {
+      setSwitching(false);
+    }
+  }
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const confidentialTransfers = useMemo(
@@ -74,22 +75,45 @@ export default function AuditConsolePage() {
         subtitle={c.audit.subtitle}
         showWallet={false}
         actions={
-          unlocked ? (
-            <Button variant="secondary" onClick={() => logout("auditor")}>
-              <Lock size={16} />
-              {c.audit.lockButton}
-            </Button>
-          ) : undefined
+          // The demo's stand-in for the auditor's own authenticated session:
+          // a plain switch, defaulting to off. Everything below is redacted
+          // by the backend until it is on.
+          <label
+            className="flex cursor-pointer items-center gap-3 text-sm font-medium text-ink-700"
+            title={c.audit.auditorViewHint}
+          >
+            <span className="flex items-center gap-1.5">
+              <ShieldCheck size={14} className={unlocked ? "text-success-500" : "text-ink-400"} />
+              {c.audit.auditorViewLabel}
+            </span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={unlocked}
+              aria-label={c.audit.auditorViewLabel}
+              disabled={switching}
+              onClick={toggleAuditorView}
+              className={clsx(
+                "relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-60",
+                unlocked ? "bg-brand-600" : "bg-ink-900/15"
+              )}
+            >
+              <span
+                className={clsx(
+                  "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
+                  unlocked ? "left-0.5 translate-x-5" : "left-0.5 translate-x-0"
+                )}
+              />
+            </button>
+          </label>
         }
       />
 
       <main className="flex flex-col gap-5 px-6 py-6">
         {!unlocked && (
-          <PasswordPrompt
-            title={c.audit.unlockPromptTitle}
-            body={c.audit.unlockPromptBody}
-            onSubmit={(password) => login("auditor", password)}
-          />
+          <p className="rounded-xl border border-border-subtle bg-canvas/60 px-4 py-3 text-sm text-ink-500">
+            {c.audit.auditorViewOffNote}
+          </p>
         )}
 
         <KeyTimeline
@@ -384,12 +408,11 @@ function KeyTimeline({
 }: {
   generations: { id: string; generation: number; createdAt: number; retiredAt: number | null; status: string }[];
   unlocked: boolean;
-  onRotate: (confirmPassword: string) => Promise<unknown>;
+  onRotate: () => Promise<unknown>;
 }) {
   const c = useCopy();
   const [showConfirm, setShowConfirm] = useState(false);
   const [phrase, setPhrase] = useState("");
-  const [password, setPassword] = useState("");
   const [rotating, setRotating] = useState(false);
   const [error, setError] = useState(false);
 
@@ -400,10 +423,9 @@ function KeyTimeline({
     setRotating(true);
     setError(false);
     try {
-      await onRotate(password);
+      await onRotate();
       setShowConfirm(false);
       setPhrase("");
-      setPassword("");
     } catch {
       setError(true);
     } finally {
@@ -440,24 +462,15 @@ function KeyTimeline({
               className="rounded-lg border border-border-strong px-3 py-2 text-sm"
             />
           </label>
-          <label className="flex flex-col gap-1 text-xs font-medium text-ink-700">
-            {c.audit.rotateConfirmPasswordLabel}
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="rounded-lg border border-border-strong px-3 py-2 text-sm"
-            />
-          </label>
           {phrase.length > 0 && !phraseMatches && (
             <p className="text-xs text-danger-600">{c.audit.rotateConfirmPhraseMismatch}</p>
           )}
-          {error && <p className="text-xs text-danger-600">{c.common.wrongPassword}</p>}
+          {error && <p className="text-xs text-danger-600">{c.common.actionFailed}</p>}
           <div className="flex justify-end gap-2">
             <Button size="sm" variant="secondary" onClick={() => setShowConfirm(false)}>
               {c.common.cancel}
             </Button>
-            <Button size="sm" disabled={!phraseMatches || !password || rotating} onClick={handleRotate}>
+            <Button size="sm" disabled={!phraseMatches || rotating} onClick={handleRotate}>
               {rotating ? c.common.processing : c.audit.rotateConfirmButton}
             </Button>
           </div>

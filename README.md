@@ -27,9 +27,11 @@ handles per-transfer auditor disclosure and auditor-key rotation on
   Decryption with the wrong generation fails safely.
 - **Auditor key rotation**, with retired generations kept so historical
   transfers stay disclosable.
-- **Role-based visibility** enforced server-side: a session unlocks as the
-  sender, the receiver, the auditor, or any combination, and the backend
-  redacts everything that combination is not entitled to see.
+- **Role-based visibility** enforced server-side: the viewer switches on the
+  sender's owner view, the receiver's, the auditor's, or any combination,
+  and the backend redacts everything that combination is not entitled to
+  see. The switches are the demo's stand-in for wallets and an authenticated
+  auditor session — see *Roles and visibility* below.
 
 ## Structure
 
@@ -64,17 +66,22 @@ Configuration is by environment variable; see
 The public devnet RPC endpoint is rate-limited, so a dedicated devnet URL in
 `SOLANA_RPC_URL` makes the demo noticeably smoother.
 
-#### Demo passwords
+#### Roles and visibility
 
-Owner and auditor actions (send/deposit/withdraw, per-transfer disclosure,
-auditor-key rotation) require unlocking with one of these. The defaults are
-printed to the server log at startup:
+There are no logins. Each account page has a *Public observer view / Owner
+view* switch (public by default), and the Audit Console has an *Auditor
+view* switch (off by default). The frontend sends whatever is switched on
+as an `X-Demo-Roles` header, and the backend redacts confidential balances,
+transfer amounts and disclosure records for anything that is off, and
+refuses owner or auditor actions the request is not viewing as.
 
-| Role | Password | Override via |
-|---|---|---|
-| Sender owner | `sender-demo` | `OWNER_SENDER_PASSWORD` |
-| Receiver owner | `receiver-demo` | `OWNER_RECEIVER_PASSWORD` |
-| Auditor | `auditor-demo` | `AUDITOR_PASSWORD` |
+That header is a UI switch, not a credential: anyone who can reach the port
+can set it. What it preserves is the *shape* of who-sees-what, decided in
+one place on the server. For that reason the service binds to `127.0.0.1`
+and only accepts browser requests from `http://localhost:3000` by default;
+change `BIND_ADDR` and `CORS_ORIGINS` deliberately if you run it on a
+shared host, and expect anyone on that network to be able to move the demo's
+devnet funds.
 
 #### Key derivation
 
@@ -108,7 +115,7 @@ runs the same commands:
 # rust-service/
 cargo fmt --all --check
 cargo clippy --all-targets -- -D warnings
-cargo test                  # unit tests: key derivation, auth, amount parsing
+cargo test                  # unit tests: key derivation, role parsing, amounts
 
 # app/
 pnpm lint
@@ -128,8 +135,9 @@ counterpart:
 
 - **Keys on the server.** Personas sign with keypair files the service
   holds. Production needs wallet-approved signing per party.
-- **Password auth.** One password per role, exchanged for an in-memory
-  bearer token. Production needs real identity.
+- **Role switches instead of authentication.** Owner and auditor views are
+  toggled in the UI and sent as a header. Production needs real identity;
+  the server-side redaction and permission checks would stay as they are.
 - **The service pays every fee** from its own payer keypair, and the UI says
   so. Production would have each party pay or a bank sponsor explicitly.
 - **Local JSON logs** stand in for an indexer or a database.

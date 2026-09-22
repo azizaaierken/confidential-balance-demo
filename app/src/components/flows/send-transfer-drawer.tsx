@@ -108,7 +108,7 @@ export function SendTransferDrawer({
           fromAccountId,
           toId,
           numericAmount,
-          useDemoStore.getState().authTokens
+          useDemoStore.getState().viewRoles
         );
         if (!cancelled) {
           setSimulationOutcome({ key: simulationKey, state: { status: "done", result } });

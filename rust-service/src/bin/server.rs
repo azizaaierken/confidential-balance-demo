@@ -10,7 +10,7 @@
 use anyhow::{anyhow, Result};
 use axum::{
     extract::State as AxumState,
-    http::{HeaderMap, StatusCode},
+    http::{HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Json},
     routing::{get, post},
     Router,
@@ -19,7 +19,7 @@ use rust_service::{
     activity::{ActivityEntry, ActivityLog, AuditDisclosure, DisclosureLog},
     apply_pending, auditor,
     auditor_registry::AuditorRegistry,
-    auth::{self, AuthRegistry, Role},
+    auth::{self, Role},
     configure, deposit, keys, mint, setup, transfer,
     types::LabeledSignature,
     view, withdraw,
@@ -28,7 +28,7 @@ use serde::{Deserialize, Serialize};
 use solana_client::rpc_client::RpcClient;
 use solana_sdk::signature::{Keypair, Signer};
 use std::sync::Arc;
-use tower_http::cors::CorsLayer;
+use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 
 const DECIMALS: u8 = setup::MINT_DECIMALS;
 
@@ -82,7 +82,6 @@ struct AppState {
     activity: Arc<ActivityLog>,
     disclosures: Arc<DisclosureLog>,
     registry: Arc<AuditorRegistry>,
-    auth: Arc<AuthRegistry>,
 }
 
 impl AppState {
@@ -249,26 +248,6 @@ struct DiscloseBody {
     reason: String,
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct LoginBody {
-    role: String,
-    password: String,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct LoginResponse {
-    ok: bool,
-    token: String,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct RotateBody {
-    confirm_password: String,
-}
-
 // ============================================================================
 // Main
 // ============================================================================
@@ -297,15 +276,13 @@ async fn main() -> Result<()> {
     tracing::info!("sender:   {}", env.sender.pubkey());
     tracing::info!("receiver: {}", env.receiver.pubkey());
 
-    let data_dir = std::env::var("RUST_SERVICE_DATA_DIR").unwrap_or_else(|_| "data".to_string());
-    let activity = Arc::new(ActivityLog::load_or_create(
-        format!("{data_dir}/activity.json").into(),
-    )?);
+    let data_dir = keys::runtime_dir("RUST_SERVICE_DATA_DIR", "data");
+    let activity = Arc::new(ActivityLog::load_or_create(data_dir.join("activity.json"))?);
     let disclosures = Arc::new(DisclosureLog::load_or_create(
-        format!("{data_dir}/disclosures.json").into(),
+        data_dir.join("disclosures.json"),
     )?);
     let registry = Arc::new(AuditorRegistry::load_or_create(
-        format!("{data_dir}/auditor-generations.json").into(),
+        data_dir.join("auditor-generations.json"),
     )?);
     registry.ensure_generation(
         env.auditor_generation,
@@ -324,16 +301,40 @@ async fn main() -> Result<()> {
         activity,
         disclosures,
         registry,
-        auth: Arc::new(AuthRegistry::new()),
     };
 
+    // Network exposure. There is no authentication (see auth.rs), so the
+    // defaults keep the service reachable only from this machine and only
+    // by the frontend's origin. Both are overridable for a shared host.
     let port: u16 = std::env::var("PORT")
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(8787);
+    let bind_addr = std::env::var("BIND_ADDR").unwrap_or_else(|_| "127.0.0.1".to_string());
+    let cors_origins = std::env::var("CORS_ORIGINS")
+        .unwrap_or_else(|_| "http://localhost:3000,http://127.0.0.1:3000".to_string());
+    let allowed_origins: Vec<HeaderValue> = cors_origins
+        .split(',')
+        .map(str::trim)
+        .filter(|o| !o.is_empty())
+        .map(|o| {
+            o.parse::<HeaderValue>()
+                .map_err(|e| anyhow!("CORS_ORIGINS entry {o:?}: {e}"))
+        })
+        .collect::<Result<_>>()?;
+    if bind_addr != "127.0.0.1" && bind_addr != "localhost" {
+        tracing::warn!(
+            "binding to {bind_addr}: this service has no authentication and moves devnet funds; \
+             make sure only trusted networks can reach it"
+        );
+    }
+    let cors = CorsLayer::new()
+        .allow_origin(AllowOrigin::list(allowed_origins))
+        .allow_methods(Any)
+        .allow_headers(Any);
+
     let app = Router::new()
         .route("/state", get(state_handler))
-        .route("/auth/login", post(login_handler))
         .route("/mint", post(mint_handler))
         .route("/deposit", post(deposit_handler))
         .route("/apply-pending", post(apply_pending_handler))
@@ -343,9 +344,11 @@ async fn main() -> Result<()> {
         .route("/auditor/rotate", post(auditor_rotate_handler))
         .route("/auditor/disclose", post(auditor_disclose_handler))
         .with_state(state)
-        .layer(CorsLayer::permissive());
+        .layer(cors);
 
-    let addr: std::net::SocketAddr = format!("0.0.0.0:{port}").parse()?;
+    let addr: std::net::SocketAddr = format!("{bind_addr}:{port}")
+        .parse()
+        .map_err(|e| anyhow!("BIND_ADDR/PORT {bind_addr}:{port}: {e}"))?;
     tracing::info!("listening on http://{addr}");
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;
@@ -360,33 +363,21 @@ async fn state_handler(
     AxumState(s): AxumState<AppState>,
     headers: HeaderMap,
 ) -> ApiResult<StateResponse> {
-    let roles = s.auth.roles_for(&headers, now_ms());
+    let roles = auth::roles_for(&headers);
     let state = run_blocking(s, move |s| read_state(&s, &roles)).await?;
     Ok(Json(state))
 }
 
-async fn login_handler(
-    AxumState(s): AxumState<AppState>,
-    Json(body): Json<LoginBody>,
-) -> ApiResult<LoginResponse> {
-    let role = Role::parse(&body.role)?;
-    let token = s
-        .auth
-        .login(role, &body.password, now_ms())
-        .map_err(AppError::unauthorized)?;
-    Ok(Json(LoginResponse { ok: true, token }))
-}
-
-// Minting is a bank/mint-authority action (the server always holds that key)
-// rather than something either persona needs to authorize with their own
-// password — it never touches confidential state, so it's left open, unlike
-// every action below that signs or discloses on a persona's behalf.
+// Minting is a mint-authority action (the server always holds that key)
+// rather than something either persona does, and it never touches
+// confidential state, so it takes no role. Like every other endpoint it is
+// protected only by network exposure — see `BIND_ADDR` above.
 async fn mint_handler(
     AxumState(s): AxumState<AppState>,
     headers: HeaderMap,
     Json(body): Json<AmountBody>,
 ) -> ApiResult<ActionResponse> {
-    let roles = s.auth.roles_for(&headers, now_ms());
+    let roles = auth::roles_for(&headers);
     let amount_base = ui_to_base(body.amount).map_err(AppError::bad_request)?;
     let response = run_blocking(s, move |s| {
         let recipient = s.signer_for(&body.account_id)?;
@@ -436,7 +427,7 @@ async fn deposit_handler(
     headers: HeaderMap,
     Json(body): Json<AmountBody>,
 ) -> ApiResult<ActionResponse> {
-    let roles = s.auth.roles_for(&headers, now_ms());
+    let roles = auth::roles_for(&headers);
     auth::require_owner(&roles, &body.account_id).map_err(AppError::unauthorized)?;
     let amount_base = ui_to_base(body.amount).map_err(AppError::bad_request)?;
     let response = run_blocking(s, move |s| {
@@ -487,7 +478,7 @@ async fn apply_pending_handler(
     headers: HeaderMap,
     Json(body): Json<AccountBody>,
 ) -> ApiResult<ActionResponse> {
-    let roles = s.auth.roles_for(&headers, now_ms());
+    let roles = auth::roles_for(&headers);
     auth::require_owner(&roles, &body.account_id).map_err(AppError::unauthorized)?;
     let response = run_blocking(s, move |s| {
         let authority = s.signer_for(&body.account_id)?;
@@ -540,7 +531,7 @@ async fn withdraw_handler(
     headers: HeaderMap,
     Json(body): Json<AmountBody>,
 ) -> ApiResult<ActionResponse> {
-    let roles = s.auth.roles_for(&headers, now_ms());
+    let roles = auth::roles_for(&headers);
     auth::require_owner(&roles, &body.account_id).map_err(AppError::unauthorized)?;
     let amount_base = ui_to_base(body.amount).map_err(AppError::bad_request)?;
     let response = run_blocking(s, move |s| {
@@ -597,7 +588,7 @@ async fn transfer_handler(
     headers: HeaderMap,
     Json(body): Json<TransferBody>,
 ) -> ApiResult<ActionResponse> {
-    let roles = s.auth.roles_for(&headers, now_ms());
+    let roles = auth::roles_for(&headers);
     auth::require_owner(&roles, &body.from_account_id).map_err(AppError::unauthorized)?;
     // Token-2022 will happily process a transfer whose source and destination
     // are the same account — it just moves the amount out of that account's
@@ -673,7 +664,7 @@ async fn transfer_simulate_handler(
     headers: HeaderMap,
     Json(body): Json<TransferBody>,
 ) -> ApiResult<SimulateResponse> {
-    let roles = s.auth.roles_for(&headers, now_ms());
+    let roles = auth::roles_for(&headers);
     auth::require_owner(&roles, &body.from_account_id).map_err(AppError::unauthorized)?;
     // Mirror the send path's guard, or the preflight would cheerfully report
     // that a self-payment simulates fine right before the send refuses it.
@@ -713,18 +704,9 @@ async fn transfer_simulate_handler(
 async fn auditor_rotate_handler(
     AxumState(s): AxumState<AppState>,
     headers: HeaderMap,
-    Json(body): Json<RotateBody>,
 ) -> ApiResult<StateResponse> {
-    let roles = s.auth.roles_for(&headers, now_ms());
+    let roles = auth::roles_for(&headers);
     auth::require_auditor(&roles).map_err(AppError::unauthorized)?;
-    // Step-up: rotating the auditor key is consequential enough (every future
-    // confidential transfer is disclosed with the new key from here on) that
-    // holding a session token isn't treated as sufficient on its own — the
-    // frontend's rotation ceremony re-collects the auditor password and this
-    // re-checks it directly, independent of the bearer token.
-    if !s.auth.check_password(Role::Auditor, &body.confirm_password) {
-        return Err(AppError::unauthorized(anyhow!("wrong auditor password")));
-    }
     let response = run_blocking(s, move |s| {
         let current_gen = s.active_generation()?;
         let new_gen = current_gen + 1;
@@ -802,7 +784,7 @@ async fn auditor_disclose_handler(
     headers: HeaderMap,
     Json(body): Json<DiscloseBody>,
 ) -> ApiResult<serde_json::Value> {
-    let roles = s.auth.roles_for(&headers, now_ms());
+    let roles = auth::roles_for(&headers);
     auth::require_auditor(&roles).map_err(AppError::unauthorized)?;
     let response = run_blocking(s, move |s| disclose(&s, &roles, body)).await?;
     Ok(Json(response))

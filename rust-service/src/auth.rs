@@ -1,24 +1,23 @@
-//! Minimal password-based auth for the demo: one password per role, checked
-//! server-side, exchanged for an opaque bearer token held in memory. This is
-//! deliberately simple (no user accounts, no hashing scheme, no persistence)
-//! — the point is that sensitive endpoints and confidential fields are no
-//! longer wide open to anyone who can reach the HTTP port, not that this is a
-//! production auth system.
+//! Demo role selection. There is no authentication in this demo: the
+//! frontend tells the backend which roles the viewer has switched on (any
+//! combination of the sender, the receiver and the auditor) via a single
+//! `X-Demo-Roles: sender,auditor` header, and the backend reveals exactly
+//! what that combination is entitled to see and permits exactly the actions
+//! those roles may take.
 //!
-//! The frontend holds up to three tokens at once (sender / receiver /
-//! auditor, however many it has unlocked) and sends every one it currently
-//! holds on every request via a single `X-Auth-Tokens: t1,t2,...` header —
-//! that one header both authorizes the specific action a handler needs and
-//! determines how much of `/state` the response reveals, so a session that's
-//! unlocked as both an owner and the auditor sees both at once.
+//! That header is a UI switch, not a credential — anyone who can reach the
+//! HTTP port can set it. What this buys is fidelity, not security: every
+//! redaction and permission decision is still made server-side, in one
+//! place, from the roles a request presents, so the demo shows the real
+//! shape of who-sees-what. A production deployment would replace the header
+//! with authenticated sessions and keep the rest of this module as is. The
+//! service is expected to be reachable only from the machine running the
+//! demo; see `BIND_ADDR` and `CORS_ORIGINS` in `bin/server.rs`.
 
 use anyhow::{anyhow, Result};
 use axum::http::HeaderMap;
-use solana_sdk::signature::Keypair;
-use std::collections::HashMap;
-use std::sync::RwLock;
 
-const TOKEN_TTL_MS: i64 = 4 * 60 * 60 * 1000; // 4 hours
+pub const ROLES_HEADER: &str = "x-demo-roles";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Role {
@@ -28,12 +27,12 @@ pub enum Role {
 }
 
 impl Role {
-    pub fn parse(s: &str) -> Result<Role> {
+    pub fn parse(s: &str) -> Option<Role> {
         match s {
-            "sender" => Ok(Role::OwnerSender),
-            "receiver" => Ok(Role::OwnerReceiver),
-            "auditor" => Ok(Role::Auditor),
-            other => Err(anyhow!("unknown role: {other}")),
+            "sender" => Some(Role::OwnerSender),
+            "receiver" => Some(Role::OwnerReceiver),
+            "auditor" => Some(Role::Auditor),
+            _ => None,
         }
     }
 
@@ -46,101 +45,20 @@ impl Role {
     }
 }
 
-pub struct AuthRegistry {
-    passwords: HashMap<&'static str, String>,
-    tokens: RwLock<HashMap<String, (Role, i64)>>,
-}
-
-fn env_password(var: &str, demo_default: &str) -> String {
-    std::env::var(var).unwrap_or_else(|_| demo_default.to_string())
-}
-
-impl Default for AuthRegistry {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl AuthRegistry {
-    pub fn new() -> Self {
-        let mut passwords = HashMap::new();
-        passwords.insert(
-            "sender",
-            env_password("OWNER_SENDER_PASSWORD", "sender-demo"),
-        );
-        passwords.insert(
-            "receiver",
-            env_password("OWNER_RECEIVER_PASSWORD", "receiver-demo"),
-        );
-        passwords.insert("auditor", env_password("AUDITOR_PASSWORD", "auditor-demo"));
-
-        tracing::info!(
-            "demo auth passwords (override via env vars for anything beyond a local demo):"
-        );
-        tracing::info!(
-            "  sender:   {} (OWNER_SENDER_PASSWORD)",
-            passwords["sender"]
-        );
-        tracing::info!(
-            "  receiver: {} (OWNER_RECEIVER_PASSWORD)",
-            passwords["receiver"]
-        );
-        tracing::info!("  auditor:  {} (AUDITOR_PASSWORD)", passwords["auditor"]);
-
-        Self {
-            passwords,
-            tokens: RwLock::new(HashMap::new()),
-        }
-    }
-
-    fn role_key(role: Role) -> &'static str {
-        match role {
-            Role::OwnerSender => "sender",
-            Role::OwnerReceiver => "receiver",
-            Role::Auditor => "auditor",
-        }
-    }
-
-    pub fn check_password(&self, role: Role, password: &str) -> bool {
-        self.passwords
-            .get(Self::role_key(role))
-            .is_some_and(|expected| expected == password)
-    }
-
-    pub fn login(&self, role: Role, password: &str, now_ms: i64) -> Result<String> {
-        if !self.check_password(role, password) {
-            return Err(anyhow!("wrong password"));
-        }
-        let token = hex::encode(Keypair::new().to_bytes());
-        self.tokens
-            .write()
-            .unwrap()
-            .insert(token.clone(), (role, now_ms + TOKEN_TTL_MS));
-        Ok(token)
-    }
-
-    fn token_role(&self, token: &str, now_ms: i64) -> Option<Role> {
-        let tokens = self.tokens.read().unwrap();
-        let (role, expires_at) = tokens.get(token)?;
-        if *expires_at < now_ms {
-            return None;
-        }
-        Some(*role)
-    }
-
-    /// Every role this request is currently authorized for, resolved from the
-    /// `X-Auth-Tokens` header (comma-separated tokens; unknown/expired ones
-    /// are silently ignored rather than failing the whole request).
-    pub fn roles_for(&self, headers: &HeaderMap, now_ms: i64) -> Vec<Role> {
-        let Some(raw) = headers.get("x-auth-tokens").and_then(|v| v.to_str().ok()) else {
-            return Vec::new();
-        };
-        raw.split(',')
-            .map(str::trim)
-            .filter(|t| !t.is_empty())
-            .filter_map(|t| self.token_role(t, now_ms))
-            .collect()
-    }
+/// Every role this request is viewing as, from the `X-Demo-Roles` header
+/// (comma-separated; unknown names are ignored rather than failing the
+/// request). No header means a public observer.
+pub fn roles_for(headers: &HeaderMap) -> Vec<Role> {
+    let Some(raw) = headers.get(ROLES_HEADER).and_then(|v| v.to_str().ok()) else {
+        return Vec::new();
+    };
+    let mut roles: Vec<Role> = raw
+        .split(',')
+        .map(str::trim)
+        .filter_map(Role::parse)
+        .collect();
+    roles.dedup();
+    roles
 }
 
 pub fn require_owner(roles: &[Role], account_id: &str) -> Result<()> {
@@ -151,7 +69,7 @@ pub fn require_owner(roles: &[Role], account_id: &str) -> Result<()> {
         Ok(())
     } else {
         Err(anyhow!(
-            "not authorized as the owner of accountId {account_id} — unlock owner access first"
+            "not viewing as the owner of accountId {account_id} — switch to its owner view first"
         ))
     }
 }
@@ -161,7 +79,7 @@ pub fn require_auditor(roles: &[Role]) -> Result<()> {
         Ok(())
     } else {
         Err(anyhow!(
-            "not authorized as auditor — unlock auditor access first"
+            "not viewing as the auditor — switch the auditor view on first"
         ))
     }
 }
@@ -171,45 +89,21 @@ mod tests {
     use super::*;
     use axum::http::HeaderValue;
 
-    fn registry() -> AuthRegistry {
-        AuthRegistry::new()
-    }
-
-    fn headers(tokens: &[&str]) -> HeaderMap {
+    fn headers(value: &str) -> HeaderMap {
         let mut h = HeaderMap::new();
-        h.insert(
-            "x-auth-tokens",
-            HeaderValue::from_str(&tokens.join(",")).unwrap(),
-        );
+        h.insert(ROLES_HEADER, HeaderValue::from_str(value).unwrap());
         h
     }
 
     #[test]
-    fn login_rejects_wrong_password() {
-        let r = registry();
-        assert!(r.login(Role::Auditor, "nope", 0).is_err());
+    fn no_header_means_public_observer() {
+        assert!(roles_for(&HeaderMap::new()).is_empty());
     }
 
     #[test]
-    fn token_resolves_to_its_role_until_expiry() {
-        let r = registry();
-        let t = r.login(Role::OwnerSender, "sender-demo", 1_000).unwrap();
-        assert_eq!(r.roles_for(&headers(&[&t]), 1_000), vec![Role::OwnerSender]);
-        assert_eq!(
-            r.roles_for(&headers(&[&t]), 1_000 + TOKEN_TTL_MS + 1),
-            Vec::<Role>::new()
-        );
-    }
-
-    #[test]
-    fn several_tokens_combine_and_unknown_ones_are_ignored() {
-        let r = registry();
-        let s = r.login(Role::OwnerSender, "sender-demo", 0).unwrap();
-        let a = r.login(Role::Auditor, "auditor-demo", 0).unwrap();
-        let roles = r.roles_for(&headers(&[&s, "garbage", &a]), 0);
-        assert!(roles.contains(&Role::OwnerSender));
-        assert!(roles.contains(&Role::Auditor));
-        assert!(!roles.contains(&Role::OwnerReceiver));
+    fn parses_any_combination_and_ignores_unknown_names() {
+        let roles = roles_for(&headers(" sender, auditor ,garbage,"));
+        assert_eq!(roles, vec![Role::OwnerSender, Role::Auditor]);
     }
 
     #[test]

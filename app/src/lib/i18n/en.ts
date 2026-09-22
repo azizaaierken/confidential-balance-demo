@@ -23,9 +23,7 @@ export const en: Copy = {
     processing: "Processing…",
     copyFullAddress: "Copy full address",
     copied: "Copied",
-    passwordLabel: "Password",
-    wrongPassword: "Incorrect password.",
-    unlock: "Unlock",
+    actionFailed: "The action failed — check the backend log for details.",
     retryButton: "Retry",
     previousPage: "Previous",
     nextPage: "Next",
@@ -49,6 +47,7 @@ export const en: Copy = {
   },
   roleSwitcher: {
     label: "Viewing perspective",
+    demoHint: "Demo switch: stands in for the owner connecting their wallet. No password — this is not authentication.",
     ownerView: "Owner view",
     publicView: "Public observer view",
   },
@@ -107,9 +106,6 @@ export const en: Copy = {
     switchToOwnerNote: "Switch to Owner view for this account to send, deposit, or withdraw.",
     activityTitle: "Activity",
     activitySubtitle: "Scoped to this account",
-    unlockOwnerTitle: "Unlock owner access",
-    unlockOwnerBody:
-      "This account's own confidential balance and its send/deposit/withdraw actions require its password — this demo's stand-in for a wallet approving on the owner's behalf.",
   },
   activity: {
     mintLabel: "Mint",
@@ -197,10 +193,9 @@ export const en: Copy = {
   audit: {
     title: "Audit Console",
     subtitle: "Controlled, per-transfer disclosure for an authorized payment auditor",
-    lockButton: "Lock auditor access",
-    unlockPromptTitle: "Unlock auditor access",
-    unlockPromptBody:
-      "Per-transfer disclosure and the operational access record require the auditor password — checked by the backend, not simulated locally.",
+    auditorViewLabel: "Auditor view",
+    auditorViewHint: "Demo switch: stands in for the auditor's own authenticated session. No password — this is not authentication.",
+    auditorViewOffNote: "Auditor view is off. Switch it on (top right) to request per-transfer disclosure, rotate the auditor key, and see the operational access record. In production this would be the auditor's own authenticated session; here it is a demo switch.",
     keyTimelineTitle: "Auditor key generations",
     keyTimelineSubtitle: "A transfer stays encrypted to the key generation active when it was created",
     rotateButton: "Rotate auditor key",
@@ -216,7 +211,6 @@ export const en: Copy = {
       "Every confidential transfer from this point on will be encrypted to the new key generation. Retired generations are kept so past disclosures still work, but this action itself cannot be undone.",
     rotateConfirmPhraseLabel: (phrase) => `Type ${phrase} to confirm`,
     rotateConfirmPhrasePlaceholder: "ROTATE",
-    rotateConfirmPasswordLabel: "Re-enter auditor password",
     rotateConfirmButton: "Rotate key",
     rotateConfirmPhraseMismatch: "Doesn't match — type it exactly as shown.",
     transfersTitle: "Confidential transfers",

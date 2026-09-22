@@ -23,9 +23,7 @@ export interface Copy {
     processing: string;
     copyFullAddress: string;
     copied: string;
-    passwordLabel: string;
-    wrongPassword: string;
-    unlock: string;
+    actionFailed: string;
     retryButton: string;
     previousPage: string;
     nextPage: string;
@@ -49,6 +47,7 @@ export interface Copy {
   };
   roleSwitcher: {
     label: string;
+    demoHint: string;
     ownerView: string;
     publicView: string;
   };
@@ -104,8 +103,6 @@ export interface Copy {
     switchToOwnerNote: string;
     activityTitle: string;
     activitySubtitle: string;
-    unlockOwnerTitle: string;
-    unlockOwnerBody: string;
   };
   activity: {
     mintLabel: string;
@@ -185,9 +182,9 @@ export interface Copy {
   audit: {
     title: string;
     subtitle: string;
-    lockButton: string;
-    unlockPromptTitle: string;
-    unlockPromptBody: string;
+    auditorViewLabel: string;
+    auditorViewHint: string;
+    auditorViewOffNote: string;
     keyTimelineTitle: string;
     keyTimelineSubtitle: string;
     rotateButton: string;
@@ -201,7 +198,6 @@ export interface Copy {
     rotateConfirmBody: string;
     rotateConfirmPhraseLabel: (phrase: string) => string;
     rotateConfirmPhrasePlaceholder: string;
-    rotateConfirmPasswordLabel: string;
     rotateConfirmButton: string;
     rotateConfirmPhraseMismatch: string;
     transfersTitle: string;

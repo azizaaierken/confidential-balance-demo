@@ -19,8 +19,9 @@ Set `NEXT_PUBLIC_BACKEND_URL` in `.env.local` if the backend runs elsewhere
 - `src/app/` — routes: the dashboard, `/accounts/[id]` for each persona, and
   `/audit` for the auditor console.
 - `src/components/flows/` — the send, deposit/withdraw and mint drawers.
-- `src/store/demo-store.ts` — zustand store: backend state, the in-memory
-  auth tokens per role, and client-side redaction that mirrors the backend's.
+- `src/store/demo-store.ts` — zustand store: backend state, which owner and
+  auditor views are switched on, and client-side redaction that mirrors the
+  backend's.
 - `src/lib/backend/client.ts` — the only place that talks HTTP.
 - `src/lib/i18n/` — English, Simplified and Traditional Chinese copy. Every
   user-visible string lives here; a test enforces key parity across locales.

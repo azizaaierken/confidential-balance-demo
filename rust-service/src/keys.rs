@@ -80,16 +80,36 @@ fn derive_with(signer: &dyn Signer, seed: &[u8], legacy: bool) -> Result<(ElGama
 // Keypair files
 // ============================================================================
 
-pub fn keys_dir() -> PathBuf {
-    std::env::var("RUST_SERVICE_KEYS_DIR")
+/// Resolve one of the service's runtime directories: the env override if
+/// set, otherwise `<crate root>/<default>`. Anchoring the default to the
+/// crate rather than the working directory means `cargo run` from the repo
+/// root and from `rust-service/` find the same files instead of silently
+/// creating two sets of keys.
+pub fn runtime_dir(env_var: &str, default: &str) -> PathBuf {
+    std::env::var(env_var)
         .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("keys"))
+        .unwrap_or_else(|_| Path::new(env!("CARGO_MANIFEST_DIR")).join(default))
+}
+
+pub fn keys_dir() -> PathBuf {
+    runtime_dir("RUST_SERVICE_KEYS_DIR", "keys")
+}
+
+/// Create the keys directory if needed, readable by this user only.
+fn ensure_keys_dir() -> Result<PathBuf> {
+    let dir = keys_dir();
+    std::fs::create_dir_all(&dir).with_context(|| format!("create keys dir {}", dir.display()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))
+            .with_context(|| format!("restrict keys dir {}", dir.display()))?;
+    }
+    Ok(dir)
 }
 
 fn key_path(name: &str) -> Result<PathBuf> {
-    let dir = keys_dir();
-    std::fs::create_dir_all(&dir).with_context(|| format!("create keys dir {}", dir.display()))?;
-    Ok(dir.join(format!("{name}.json")))
+    Ok(ensure_keys_dir()?.join(format!("{name}.json")))
 }
 
 /// Load a keypair from `<keys_dir>/<name>.json`, generating and persisting a
@@ -133,12 +153,19 @@ pub fn persist_new(name: &str, kp: &Keypair) -> Result<PathBuf> {
     Ok(path)
 }
 
+/// Write a keypair file that only this user can read (0600 on unix), and
+/// never over an existing one.
 fn save_new(path: &Path, kp: &Keypair) -> Result<()> {
     use std::io::Write;
     let json = serde_json::to_string(&kp.to_bytes().to_vec())?;
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options
         .open(path)
         .with_context(|| format!("create keypair file {}", path.display()))?;
     file.write_all(json.as_bytes())
@@ -185,6 +212,29 @@ mod tests {
         let auditor = derive_auditor_elgamal(&authority, &mint).unwrap();
         let (elgamal, _) = derive_account_keys(&authority, &mint).unwrap();
         assert_eq!(auditor.pubkey(), elgamal.pubkey());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn key_files_are_private_to_the_user() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("cb-keys-perm-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("k.json");
+        save_new(&path, &Keypair::new()).unwrap();
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn runtime_dir_prefers_env_and_anchors_default_to_the_crate() {
+        assert_eq!(
+            runtime_dir("CB_TEST_UNSET_DIR", "keys"),
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("keys")
+        );
     }
 
     #[test]

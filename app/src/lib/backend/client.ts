@@ -18,21 +18,19 @@ const BASE_URL =
 
 export class BackendError extends Error {}
 
-// Whichever role tokens this browser session currently holds (however many
-// it has unlocked) — sent on every request via one `X-Auth-Tokens` header so
-// the backend can reveal exactly what that combination is authorized to see
-// (see rust-service/src/auth.rs).
-export interface AuthTokens {
-  sender?: string;
-  receiver?: string;
-  auditor?: string;
-}
+// Which roles the viewer has switched on in the UI (any combination of the
+// sender, the receiver and the auditor). Sent on every request as one
+// `X-Demo-Roles` header so the backend reveals exactly what that combination
+// is entitled to see and allows exactly the actions it may take. This is a
+// demo switch, not a credential — see rust-service/src/auth.rs.
+export type ViewRole = "sender" | "receiver" | "auditor";
+export type ViewRoles = Record<ViewRole, boolean>;
 
-function tokensHeader(tokens?: AuthTokens): Record<string, string> {
-  const values = [tokens?.sender, tokens?.receiver, tokens?.auditor].filter(
-    (t): t is string => Boolean(t)
-  );
-  return values.length ? { "X-Auth-Tokens": values.join(",") } : {};
+export const NO_ROLES: ViewRoles = { sender: false, receiver: false, auditor: false };
+
+function rolesHeader(roles?: ViewRoles): Record<string, string> {
+  const on = (["sender", "receiver", "auditor"] as ViewRole[]).filter((r) => roles?.[r]);
+  return on.length ? { "X-Demo-Roles": on.join(",") } : {};
 }
 
 // Reports request-level connectivity (reachable + ok vs. not) after every
@@ -44,14 +42,14 @@ export function onNetworkStatus(fn: NetworkListener) {
   networkListener = fn;
 }
 
-async function request<T>(path: string, init?: RequestInit, tokens?: AuthTokens): Promise<T> {
+async function request<T>(path: string, init?: RequestInit, roles?: ViewRoles): Promise<T> {
   let res: Response;
   try {
     res = await fetch(`${BASE_URL}${path}`, {
       ...init,
       headers: {
         "Content-Type": "application/json",
-        ...tokensHeader(tokens),
+        ...rolesHeader(roles),
         ...init?.headers,
       },
     });
@@ -265,53 +263,43 @@ function mapState(raw: RawState): BackendState {
 
 // ---- Public API ----
 
-export type AuthRole = "sender" | "receiver" | "auditor";
-
-export async function login(role: AuthRole, password: string): Promise<string> {
-  const raw = await request<{ ok: boolean; token: string }>("/auth/login", {
-    method: "POST",
-    body: JSON.stringify({ role, password }),
-  });
-  return raw.token;
-}
-
-export async function fetchState(tokens?: AuthTokens): Promise<BackendState> {
-  const raw = await request<RawState>("/state", undefined, tokens);
+export async function fetchState(roles?: ViewRoles): Promise<BackendState> {
+  const raw = await request<RawState>("/state", undefined, roles);
   return mapState(raw);
 }
 
-export async function mintSupply(accountId: string, amount: number, tokens?: AuthTokens) {
+export async function mintSupply(accountId: string, amount: number, roles?: ViewRoles) {
   const raw = await request<RawActionResponse>(
     "/mint",
     { method: "POST", body: JSON.stringify({ accountId, amount }) },
-    tokens
+    roles
   );
   return { signature: raw.signature, state: mapState(raw.state) };
 }
 
-export async function deposit(accountId: string, amount: number, tokens?: AuthTokens) {
+export async function deposit(accountId: string, amount: number, roles?: ViewRoles) {
   const raw = await request<RawActionResponse>(
     "/deposit",
     { method: "POST", body: JSON.stringify({ accountId, amount }) },
-    tokens
+    roles
   );
   return { signature: raw.signature, state: mapState(raw.state) };
 }
 
-export async function withdraw(accountId: string, amount: number, tokens?: AuthTokens) {
+export async function withdraw(accountId: string, amount: number, roles?: ViewRoles) {
   const raw = await request<RawActionResponse>(
     "/withdraw",
     { method: "POST", body: JSON.stringify({ accountId, amount }) },
-    tokens
+    roles
   );
   return { signature: raw.signature, state: mapState(raw.state) };
 }
 
-export async function applyPending(accountId: string, tokens?: AuthTokens) {
+export async function applyPending(accountId: string, roles?: ViewRoles) {
   const raw = await request<RawActionResponse>(
     "/apply-pending",
     { method: "POST", body: JSON.stringify({ accountId }) },
-    tokens
+    roles
   );
   return { signature: raw.signature, state: mapState(raw.state) };
 }
@@ -320,12 +308,12 @@ export async function confidentialTransfer(
   fromAccountId: string,
   toAccountId: string,
   amount: number,
-  tokens?: AuthTokens
+  roles?: ViewRoles
 ) {
   const raw = await request<RawActionResponse>(
     "/transfer",
     { method: "POST", body: JSON.stringify({ fromAccountId, toAccountId, amount }) },
-    tokens
+    roles
   );
   return { signature: raw.signature, signatures: raw.signatures, state: mapState(raw.state) };
 }
@@ -346,12 +334,12 @@ export async function simulateTransfer(
   fromAccountId: string,
   toAccountId: string,
   amount: number,
-  tokens?: AuthTokens
+  roles?: ViewRoles
 ): Promise<TransferSimulation> {
   const raw = await request<TransferSimulation & { ok: boolean }>(
     "/transfer/simulate",
     { method: "POST", body: JSON.stringify({ fromAccountId, toAccountId, amount }) },
-    tokens
+    roles
   );
   return {
     success: raw.success,
@@ -362,12 +350,8 @@ export async function simulateTransfer(
   };
 }
 
-export async function rotateAuditorKey(confirmPassword: string, tokens?: AuthTokens): Promise<BackendState> {
-  const raw = await request<RawState>(
-    "/auditor/rotate",
-    { method: "POST", body: JSON.stringify({ confirmPassword }) },
-    tokens
-  );
+export async function rotateAuditorKey(roles?: ViewRoles): Promise<BackendState> {
+  const raw = await request<RawState>("/auditor/rotate", { method: "POST", body: "{}" }, roles);
   return mapState(raw);
 }
 
@@ -376,12 +360,12 @@ export async function requestAuditDisclosure(
   requestedBy: string,
   reason: string,
   keyGenerationId: string,
-  tokens?: AuthTokens
+  roles?: ViewRoles
 ) {
   const raw = await request<{ ok: boolean; disclosure: RawAuditDisclosure; state: RawState }>(
     "/auditor/disclose",
     { method: "POST", body: JSON.stringify({ activityId, requestedBy, reason, keyGenerationId }) },
-    tokens
+    roles
   );
   return { disclosure: toAuditDisclosure(raw.disclosure), state: mapState(raw.state) };
 }

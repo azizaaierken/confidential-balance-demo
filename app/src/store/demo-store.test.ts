@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { redactForTokens } from "./demo-store";
+import { redactForRoles } from "./demo-store";
+import { NO_ROLES } from "@/lib/backend/client";
 import { AccountBalanceState, ActivityEntry } from "@/lib/types";
 
 function balance(accountId: string): AccountBalanceState {
@@ -26,11 +27,11 @@ const transfer: ActivityEntry = {
   steps: [],
 };
 
-describe("redactForTokens", () => {
+describe("redactForRoles", () => {
   const balances = { sender: balance("sender"), receiver: balance("receiver") };
 
-  it("hides every confidential field when no token is held", () => {
-    const { balances: b, activity } = redactForTokens(balances, [transfer], {});
+  it("hides every confidential field when no role is switched on", () => {
+    const { balances: b, activity } = redactForRoles(balances, [transfer], NO_ROLES);
     expect(b.sender.confidentialAvailable.decrypted).toBeNull();
     expect(b.receiver.confidentialPending.decrypted).toBeNull();
     expect(activity[0].partyVisibleAmount).toBeUndefined();
@@ -38,7 +39,7 @@ describe("redactForTokens", () => {
   });
 
   it("keeps an owner's own balances and the amounts of transfers they are party to", () => {
-    const { balances: b, activity } = redactForTokens(balances, [transfer], { sender: "t" });
+    const { balances: b, activity } = redactForRoles(balances, [transfer], { ...NO_ROLES, sender: true });
     expect(b.sender.confidentialAvailable.decrypted).toBe(5);
     expect(b.receiver.confidentialAvailable.decrypted).toBeNull();
     expect(activity[0].partyVisibleAmount).toBe(42);
@@ -47,14 +48,14 @@ describe("redactForTokens", () => {
   });
 
   it("keeps disclosed amounts only for an auditor, without revealing balances", () => {
-    const { balances: b, activity } = redactForTokens(balances, [transfer], { auditor: "t" });
+    const { balances: b, activity } = redactForRoles(balances, [transfer], { ...NO_ROLES, auditor: true });
     expect(activity[0].confidential?.disclosedAmount).toBe(42);
     expect(activity[0].partyVisibleAmount).toBeUndefined();
     expect(b.sender.confidentialAvailable.decrypted).toBeNull();
   });
 
   it("leaves public balances untouched", () => {
-    const { balances: b } = redactForTokens(balances, [], {});
+    const { balances: b } = redactForRoles(balances, [], NO_ROLES);
     expect(b.sender.publicBalance).toBe(10);
   });
 });
