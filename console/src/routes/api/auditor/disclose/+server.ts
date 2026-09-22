@@ -29,7 +29,7 @@ export const POST: RequestHandler = (event) =>
 
 		const now = Date.now();
 		const record: DisclosureRecord = {
-			id: `disclosure-${now}`,
+			id: `disclosure-${crypto.randomUUID()}`,
 			activityId,
 			requestedBy,
 			reason,

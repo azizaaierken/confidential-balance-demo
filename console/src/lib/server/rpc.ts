@@ -134,11 +134,26 @@ export async function sendAndConfirm(
 		if (tick % 4 === 0) {
 			const height = await rpc.getBlockHeight({ commitment: 'confirmed' }).send();
 			if (height > lastValid) {
+				if (await landed(rpc, signature)) return signature;
 				throw new Error(`transaction ${signature} expired before confirmation (blockhash aged out)`);
 			}
 		}
 	}
+	// The transaction may still have landed while we were polling; the caller
+	// records the auditor ciphertext only on success, so look one last time,
+	// including in transaction history, before reporting a loss.
+	if (await landed(rpc, signature)) return signature;
 	throw new Error(`transaction ${signature} did not confirm in time`);
+}
+
+async function landed(rpc: SolanaRpc, signature: Signature): Promise<boolean> {
+	try {
+		const { value } = await rpc.getSignatureStatuses([signature], { searchTransactionHistory: true }).send();
+		const s = value[0];
+		return !!s && !s.err && (s.confirmationStatus === 'confirmed' || s.confirmationStatus === 'finalized');
+	} catch {
+		return false;
+	}
 }
 
 export type Simulation = {

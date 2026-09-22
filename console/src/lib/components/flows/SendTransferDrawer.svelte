@@ -245,9 +245,6 @@
 				{#if result.confidential}
 					<EvidenceRow label={c.evidence.ciphertextLabel} value={result.confidential.ciphertext} />
 				{/if}
-				{#if result.proofAccountRef}
-					<EvidenceRow label={c.evidence.proofAccountLabel} value={result.proofAccountRef} />
-				{/if}
 			</EvidenceDisclosure>
 			<EvidenceSteps steps={expandEvidenceSteps(result.steps, 'transfer')} />
 			<SolscanLink signature={result.signature} />

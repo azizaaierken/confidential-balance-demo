@@ -60,12 +60,15 @@ const RANGE_PROOF_PADDING_BITS = 16;
 
 export type TransferOutcome = {
 	steps: LabeledSignature[];
+	/** The mint's auditor ElGamal pubkey the ciphertext was encrypted to, or null if the mint had none. */
+	auditorPubkey: Address | null;
 	auditorCiphertextLoHex: string | null;
 	auditorCiphertextHiHex: string | null;
 };
 
 type Built = {
 	message: Awaited<ReturnType<typeof buildV1Message>>;
+	auditorPubkey: Address | null;
 	auditorCiphertextLoHex: string | null;
 	auditorCiphertextHiHex: string | null;
 };
@@ -187,6 +190,7 @@ async function buildTransfer(
 	const message = await buildV1Message(rpc, payer, [equalityIx, validityIx, rangeIx, transferIx]);
 	return {
 		message,
+		auditorPubkey: mintConfig.auditorElgamalPubkey,
 		auditorCiphertextLoHex: hasAuditor ? toHex(auditorCiphertextLo) : null,
 		auditorCiphertextHiHex: hasAuditor ? toHex(auditorCiphertextHi) : null
 	};
@@ -205,6 +209,7 @@ export async function transferConfidential(
 	const signature = await sendAndConfirm(rpc, await signMessage(built.message));
 	return {
 		steps: [{ label: 'submit_transfer_v1', signature }],
+		auditorPubkey: built.auditorPubkey,
 		auditorCiphertextLoHex: built.auditorCiphertextLoHex,
 		auditorCiphertextHiHex: built.auditorCiphertextHiHex
 	};

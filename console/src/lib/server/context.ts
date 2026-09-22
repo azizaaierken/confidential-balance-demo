@@ -64,7 +64,11 @@ async function buildContext(): Promise<AppContext> {
 				cachedGeneration ? cachedGeneration.generation + 1 : 1
 			);
 			if (!resolved) {
-				throw new Error(`the mint's auditor key ${auditor} was not derived from this AUDITOR_ROOT_KEYPAIR`);
+				throw new Error(
+					auditor === null
+						? 'the mint has no auditor ElGamal key configured, so there is no active auditor generation'
+						: `the mint's auditor key ${auditor} was not derived from this AUDITOR_ROOT_KEYPAIR`
+				);
 			}
 			cachedGeneration = resolved;
 			// Every generation below the active one must have existed, so backfill

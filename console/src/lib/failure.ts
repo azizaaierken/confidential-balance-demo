@@ -7,6 +7,9 @@ import type { FailureStage } from "./types";
 // detail text.
 export function classifyFailure(message: string): FailureStage {
   const m = message.toLowerCase();
+  // An on-chain "ProofVerificationFailed" is the cluster rejecting the
+  // transaction, not local proof generation failing.
+  if (m.includes("verification")) return "submission";
   if (m.includes("insufficient") || m.includes("proof")) return "proof_generation";
   if (m.includes("timed out") || m.includes("timeout")) return "confirmation";
   return "submission";

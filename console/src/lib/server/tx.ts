@@ -24,7 +24,7 @@ import { latestBlockhash, type SolanaRpc } from './rpc';
 /**
  * The max the network allows a single transaction to request. Verifying
  * three ZK proofs (the range proof especially) in one transaction is far past
- * the 200,000 CU a legacy transaction gets without asking, so ask for the
+ * the 200,000 CU per instruction a legacy transaction gets without asking, so ask for the
  * ceiling outright rather than tune a number against a cost that depends on
  * proof sizes.
  */

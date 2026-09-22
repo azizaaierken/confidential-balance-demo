@@ -21,9 +21,11 @@ export async function handle<T>(event: RequestEvent, fn: Handler<T>): Promise<Re
 	if (event.request.method !== 'GET') {
 		try {
 			const text = await event.request.text();
-			body = text ? (JSON.parse(text) as Record<string, unknown>) : {};
+			const parsed: unknown = text ? JSON.parse(text) : {};
+			if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('not an object');
+			body = parsed as Record<string, unknown>;
 		} catch {
-			return json({ ok: false, error: 'request body must be JSON' }, { status: 400 });
+			return json({ ok: false, error: 'request body must be a JSON object' }, { status: 400 });
 		}
 	}
 	try {
@@ -32,7 +34,7 @@ export async function handle<T>(event: RequestEvent, fn: Handler<T>): Promise<Re
 		return json(result);
 	} catch (e) {
 		const message = errorMessage(e);
-		const status = e instanceof RoleError ? 401 : e instanceof RequestError || e instanceof AmountError ? 400 : 500;
+		const status = e instanceof RoleError ? 403 : e instanceof RequestError || e instanceof AmountError ? 400 : 500;
 		console.warn(`handler error (${status}): ${message}`);
 		return json({ ok: false, error: message }, { status });
 	}

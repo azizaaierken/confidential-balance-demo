@@ -195,7 +195,6 @@ function toActivityEntry(a: RawActivityEntry): ActivityEntry {
 				}
 			: undefined,
 		programActivity: programActivityFor(a.type),
-		proofAccountRef: a.signatures.length > 1 ? a.signatures[0] : undefined,
 		steps: (a.steps ?? []).map(
 			(s): EvidenceStep => ({
 				label: s.label as EvidenceStep['label'],

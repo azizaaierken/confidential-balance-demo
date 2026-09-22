@@ -39,7 +39,8 @@ export async function signerFromBase58(encoded: string): Promise<KeyPairSigner> 
 	if (bytes.length !== 64) {
 		throw new Error(`keypair must be 64 bytes (seed || pubkey), got ${bytes.length}`);
 	}
-	return createKeyPairSignerFromBytes(bytes, true);
+	// Loaded keys only ever sign; only freshly generated ones need exporting.
+	return createKeyPairSignerFromBytes(bytes, false);
 }
 
 /** Generate a fresh keypair and return the signer plus its base58 64-byte form. */

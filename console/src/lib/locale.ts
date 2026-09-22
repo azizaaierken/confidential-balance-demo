@@ -8,7 +8,7 @@ const INTL_LOCALE: Record<Locale, string> = {
 };
 
 // Module-level mirror of the store's `language`, for code that formats
-// values outside a React render (or that can't depend on the store without
+// values outside a component (or that can't depend on the store without
 // creating an import cycle). The store updates it in `setLanguage`; readers
 // re-render anyway because they subscribe to the store's `language`.
 let active: Locale = "en";

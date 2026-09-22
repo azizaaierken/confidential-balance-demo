@@ -42,8 +42,9 @@ export class MemoryStore implements Store {
 		retireOlder(this.generations, now);
 	}
 	async generationRotate(newGen: number, elgamalPubkey: string, now: number) {
-		this.generations.push(newGeneration(newGen, elgamalPubkey, now));
-		retireOlder(this.generations, now);
+		// Same as ensure: a second in-flight rotate for the same generation must
+		// not produce a duplicate row.
+		await this.generationEnsure(newGen, elgamalPubkey, now);
 	}
 }
 

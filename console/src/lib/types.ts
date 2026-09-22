@@ -1,6 +1,6 @@
 // Domain model for the Confidential Balance demo frontend.
 //
-// Every value here is hydrated from the Rust devnet backend (see
+// Every value here is hydrated from this app's own server routes (see
 // lib/backend/client.ts) — nothing is simulated client-side. The shapes mirror
 // the Token-2022 Confidential Transfer data model (ciphertext fields, pending
 // vs available, per-transfer auditor ciphertext, key generations) so the UI
@@ -85,7 +85,7 @@ export type EvidenceStepKind =
   | "submit_transfer_v1"
   | "submit_withdraw_v1"
   // Synthetic per-instruction rows the drawers expand a V1 step into (see
-  // components/ui/evidence-steps.tsx): the backend records one signature, but
+  // components/ui/evidence-steps.ts): the server records one signature, but
   // the transaction still contains several instructions worth itemising.
   | "verify_equality_proof"
   | "verify_validity_proof"
@@ -136,7 +136,6 @@ export interface ActivityEntry {
     disclosedAmount?: number;
   };
   programActivity: string[];
-  proofAccountRef?: string;
   // Every real transaction behind this entry, labeled with what it did —
   // empty only if the backend predates this field.
   steps: EvidenceStep[];

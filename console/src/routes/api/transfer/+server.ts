@@ -20,11 +20,13 @@ export const POST: RequestHandler = (event) =>
 		const sender = ctx.signerFor(from);
 		const recipient = ctx.signerFor(to).address;
 
-		// Which generation the auditor ciphertext was encrypted to is whatever
-		// the mint points at right now; resolve it before sending.
-		const generation = await ctx.activeGeneration();
 		const result = await transferConfidential(ctx.rpc, ctx.payer, sender, ctx.mint, recipient, amountBase);
 		const signature = result.steps[result.steps.length - 1].signature;
+		// Attribute the ciphertext to the generation of the auditor key the
+		// transfer was actually built against (read from the same mint fetch),
+		// not to whatever the mint points at now — a rotation may have landed
+		// in between.
+		const generation = result.auditorPubkey ? await ctx.activeGeneration(result.auditorPubkey) : null;
 		await ctx.store.activityAppend({
 			...baseActivity(signature, result.steps, {
 				type: 'confidential_transfer',
@@ -32,7 +34,7 @@ export const POST: RequestHandler = (event) =>
 				toAccountId: to,
 				privacy: 'confidential'
 			}),
-			auditorKeyGenerationId: generationId(generation.generation),
+			auditorKeyGenerationId: generation ? generationId(generation.generation) : null,
 			auditorCiphertextLoHex: result.auditorCiphertextLoHex,
 			auditorCiphertextHiHex: result.auditorCiphertextHiHex,
 			partyAmountUi: amount
