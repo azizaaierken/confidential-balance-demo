@@ -1,12 +1,13 @@
-//! ENV-01 compatibility spike: a real, end-to-end round trip on devnet.
+//! End-to-end round trip on devnet.
 //!
 //! mint -> deposit -> apply-pending -> confidential transfer (with auditor
 //! ciphertext capture) -> apply-pending (receiver) -> withdraw -> auditor
 //! disclosure of the transfer amount just made.
 //!
-//! This is the hands-on check the requirements doc's ENV-01 calls for before
-//! any further build work: does the ZK ElGamal Proof program actually verify
-//! these proofs on devnet right now, with this crate/version combination.
+//! This is the hands-on check that the ZK ElGamal Proof program actually
+//! verifies these proofs on devnet right now, with this crate/version
+//! combination. It spends real devnet SOL and mutates the demo accounts, so
+//! it is a binary rather than a `cargo test`.
 
 use anyhow::{anyhow, Result};
 use rust_service::{apply_pending, auditor, deposit, mint, setup, transfer, view, withdraw};
@@ -16,19 +17,16 @@ const MINT_AMOUNT: u64 = 20_000; // 200.00 TOKEN-X at 2 decimals
 const TRANSFER_AMOUNT: u64 = 5_000; // 50.00 TOKEN-X
 const WITHDRAW_AMOUNT: u64 = 2_000; // 20.00 TOKEN-X
 
-#[tokio::main]
-async fn main() {
-    if let Err(e) = run().await {
+fn main() {
+    if let Err(e) = run() {
         eprintln!("SPIKE FAILED: {e}");
         std::process::exit(1);
     }
 }
 
-async fn run() -> Result<()> {
+fn run() -> Result<()> {
     println!("== setting up (idempotent) ==");
-    let env = setup::load_or_bootstrap()
-        .await
-        .map_err(|e| anyhow!("{e}"))?;
+    let env = setup::load_or_bootstrap().map_err(|e| anyhow!("{e}"))?;
     println!("mint: {}", env.mint.pubkey());
     println!("sender: {}", env.sender.pubkey());
     println!("receiver: {}", env.receiver.pubkey());
@@ -54,14 +52,12 @@ async fn run() -> Result<()> {
         MINT_AMOUNT,
         setup::MINT_DECIMALS,
     )
-    .await
     .map_err(|e| anyhow!("{e}"))?;
     println!("signature: {sig}");
 
     println!("\n== 3. apply sender's pending balance ==");
     let outcome =
         apply_pending::apply_pending_balance(&env.rpc, &env.payer, &env.sender, &env.mint.pubkey())
-            .await
             .map_err(|e| anyhow!("{e}"))?;
     println!(
         "signature: {} | applied {} | new available {}",
@@ -69,16 +65,14 @@ async fn run() -> Result<()> {
     );
 
     println!("\n== 4. confidential transfer sender -> receiver, amount {TRANSFER_AMOUNT} ==");
-    let result = transfer::transfer_confidential_with_progress(
+    let result = transfer::transfer_confidential(
         &env.rpc,
         &env.payer,
         &env.sender,
         &env.mint.pubkey(),
         &env.receiver.pubkey(),
         TRANSFER_AMOUNT,
-        None,
     )
-    .await
     .map_err(|e| anyhow!("{e}"))?;
     println!("transactions ({}):", result.steps.len());
     for step in &result.steps {
@@ -97,7 +91,6 @@ async fn run() -> Result<()> {
         &env.receiver,
         &env.mint.pubkey(),
     )
-    .await
     .map_err(|e| anyhow!("{e}"))?;
     println!(
         "signature: {} | applied {} | new available {}",
@@ -115,7 +108,6 @@ async fn run() -> Result<()> {
         WITHDRAW_AMOUNT,
         setup::MINT_DECIMALS,
     )
-    .await
     .map_err(|e| anyhow!("{e}"))?;
     println!("transactions ({}):", withdraw_outcome.steps.len());
     for step in &withdraw_outcome.steps {

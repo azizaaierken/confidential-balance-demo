@@ -34,16 +34,38 @@ pub fn rpc_url() -> String {
     std::env::var("SOLANA_RPC_URL").unwrap_or_else(|_| "https://api.devnet.solana.com".to_string())
 }
 
+/// A short label for the cluster behind `rpc_url()`, for display. Anything
+/// that isn't recognisably one of the public clusters is reported as
+/// `custom` rather than guessed.
+pub fn cluster_label(url: &str) -> &'static str {
+    if url.contains("devnet") {
+        "devnet"
+    } else if url.contains("testnet") {
+        "testnet"
+    } else if url.contains("mainnet") {
+        "mainnet-beta"
+    } else if url.contains("localhost") || url.contains("127.0.0.1") {
+        "localnet"
+    } else {
+        "custom"
+    }
+}
+
+fn active_generation_path() -> std::path::PathBuf {
+    keys::keys_dir().join("active-auditor-generation.txt")
+}
+
 /// Which auditor generation file is "active" right now — tracked as a plain
 /// number in its own small file so rotation just has to bump it and generate
 /// the next `auditor-gen-N.json`. Retired generations' files are never
-/// deleted, so old ciphertexts stay decryptable per CB-08's retention
-/// requirement.
+/// deleted, so old ciphertexts stay decryptable.
 pub fn active_auditor_generation() -> CtResult<u32> {
-    let path = keys::keys_dir().join("active-auditor-generation.txt");
+    let path = active_generation_path();
     if path.exists() {
         let raw = std::fs::read_to_string(&path)?;
-        Ok(raw.trim().parse().unwrap_or(1))
+        raw.trim()
+            .parse()
+            .map_err(|e| format!("{}: not a generation number: {e}", path.display()).into())
     } else {
         std::fs::create_dir_all(keys::keys_dir())?;
         std::fs::write(&path, "1")?;
@@ -52,22 +74,24 @@ pub fn active_auditor_generation() -> CtResult<u32> {
 }
 
 pub fn set_active_auditor_generation(gen: u32) -> CtResult<()> {
-    let path = keys::keys_dir().join("active-auditor-generation.txt");
-    std::fs::write(&path, gen.to_string())?;
+    std::fs::write(active_generation_path(), gen.to_string())?;
     Ok(())
+}
+
+pub fn auditor_key_name(gen: u32) -> String {
+    format!("auditor-gen-{gen}")
 }
 
 pub fn load_auditor_generation(
     gen: u32,
     mint: &solana_sdk::pubkey::Pubkey,
 ) -> CtResult<(Keypair, ElGamalKeypair)> {
-    let authority = keys::load_or_generate(&format!("auditor-gen-{gen}"))?;
-    let elgamal = ElGamalKeypair::new_from_signer_legacy(&authority, &mint.to_bytes())
-        .map_err(|e| format!("derive auditor ElGamal keypair: {e}"))?;
+    let authority = keys::load_or_generate(&auditor_key_name(gen))?;
+    let elgamal = keys::derive_auditor_elgamal(&authority, mint)?;
     Ok((authority, elgamal))
 }
 
-pub async fn load_or_bootstrap() -> CtResult<Env> {
+pub fn load_or_bootstrap() -> CtResult<Env> {
     let rpc = RpcClient::new_with_commitment(rpc_url(), CommitmentConfig::confirmed());
 
     let payer = keys::load_or_generate("payer")?;
@@ -91,12 +115,11 @@ pub async fn load_or_bootstrap() -> CtResult<Env> {
             MINT_DECIMALS,
             &auditor_elgamal,
         )
-        .await
         .map_err(|e| format!("create_confidential_mint: {e}"))?;
     }
 
     for authority in [&sender, &receiver] {
-        ensure_confidential_account(&rpc, &payer, &mint.pubkey(), authority).await?;
+        ensure_confidential_account(&rpc, &payer, &mint.pubkey(), authority)?;
     }
 
     Ok(Env {
@@ -133,7 +156,7 @@ fn ensure_payer_funded(rpc: &RpcClient, payer: &Keypair) -> CtResult<()> {
     .into())
 }
 
-async fn ensure_confidential_account(
+fn ensure_confidential_account(
     rpc: &RpcClient,
     payer: &Keypair,
     mint: &solana_sdk::pubkey::Pubkey,
@@ -164,7 +187,23 @@ async fn ensure_confidential_account(
     rpc.send_and_confirm_transaction(&tx)?;
 
     crate::configure::configure_account_for_confidential_transfers(rpc, payer, authority, mint)
-        .await
         .map_err(|e| format!("configure_account_for_confidential_transfers: {e}"))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::cluster_label;
+
+    #[test]
+    fn cluster_label_recognises_public_clusters() {
+        assert_eq!(cluster_label("https://api.devnet.solana.com"), "devnet");
+        assert_eq!(cluster_label("https://api.testnet.solana.com"), "testnet");
+        assert_eq!(
+            cluster_label("https://api.mainnet-beta.solana.com"),
+            "mainnet-beta"
+        );
+        assert_eq!(cluster_label("http://127.0.0.1:8899"), "localnet");
+        assert_eq!(cluster_label("https://rpc.example.com"), "custom");
+    }
 }

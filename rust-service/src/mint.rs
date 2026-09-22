@@ -6,11 +6,7 @@
 use crate::ata::get_associated_token_address_with_program_id;
 use crate::types::*;
 use solana_client::rpc_client::RpcClient;
-use solana_sdk::{
-    pubkey::Pubkey,
-    signature::{Signature, Signer},
-    transaction::Transaction,
-};
+use solana_sdk::{pubkey::Pubkey, signature::Signer, transaction::Transaction};
 use solana_system_interface::instruction as system_instruction;
 use solana_zk_sdk::encryption::elgamal::ElGamalKeypair;
 use solana_zk_sdk_pod::encryption::elgamal::PodElGamalPubkey;
@@ -29,20 +25,16 @@ use spl_token_2022::{
     state::{Account as TokenAccount, Mint},
 };
 
-pub fn to_legacy_pubkey(kp: &ElGamalKeypair) -> PodElGamalPubkey {
+/// The mint extension's `auditor_elgamal_pubkey` is stored as a POD pubkey.
+fn auditor_pod_pubkey(kp: &ElGamalKeypair) -> PodElGamalPubkey {
     (*kp.pubkey()).into()
 }
 
 pub fn mint_exists(rpc: &RpcClient, mint: &Pubkey) -> CtResult<bool> {
     match rpc.get_account(mint) {
         Ok(_) => Ok(true),
-        Err(e) => {
-            if e.to_string().contains("AccountNotFound") {
-                Ok(false)
-            } else {
-                Err(format!("rpc get_account failed: {e}").into())
-            }
-        }
+        Err(e) if e.to_string().contains("AccountNotFound") => Ok(false),
+        Err(e) => Err(format!("rpc get_account failed: {e}").into()),
     }
 }
 
@@ -57,7 +49,30 @@ pub fn ata_is_configured(rpc: &RpcClient, ata: &Pubkey) -> CtResult<bool> {
     Ok(acc.get_extension::<ConfidentialTransferAccount>().is_ok())
 }
 
-pub async fn create_confidential_mint(
+/// The mint's confidential-transfer configuration as it stands on chain.
+pub struct ConfidentialMintConfig {
+    pub authority: Option<Pubkey>,
+    pub auto_approve_new_accounts: bool,
+    pub auditor_elgamal_pubkey: Option<String>,
+}
+
+pub fn read_confidential_mint_config(
+    client: &RpcClient,
+    mint: &Pubkey,
+) -> CtResult<ConfidentialMintConfig> {
+    let data = client.get_account(mint)?;
+    let acc = StateWithExtensions::<Mint>::unpack(&data.data)?;
+    let ext = acc.get_extension::<ConfidentialTransferMint>()?;
+    let authority: Option<Pubkey> = ext.authority.into();
+    let auditor: Option<PodElGamalPubkey> = ext.auditor_elgamal_pubkey.into();
+    Ok(ConfidentialMintConfig {
+        authority,
+        auto_approve_new_accounts: ext.auto_approve_new_accounts.into(),
+        auditor_elgamal_pubkey: auditor.map(|p| p.to_string()),
+    })
+}
+
+pub fn create_confidential_mint(
     client: &RpcClient,
     payer: &dyn Signer,
     mint: &dyn Signer,
@@ -69,7 +84,6 @@ pub async fn create_confidential_mint(
         ExtensionType::ConfidentialTransferMint,
     ])?;
     let rent = client.get_minimum_balance_for_rent_exemption(space)?;
-    let auditor_pod = to_legacy_pubkey(auditor_elgamal);
 
     let create_ix = system_instruction::create_account(
         &payer.pubkey(),
@@ -78,12 +92,13 @@ pub async fn create_confidential_mint(
         space as u64,
         &spl_token_2022::id(),
     );
+    // Extension initialisation must precede the base `InitializeMint`.
     let init_ct_ix = initialize_confidential_transfer_mint(
         &spl_token_2022::id(),
         &mint.pubkey(),
         Some(mint_authority.pubkey()),
         true, // auto-approve new accounts
-        Some(auditor_pod),
+        Some(auditor_pod_pubkey(auditor_elgamal)),
     )?;
     let init_mint_ix = initialize_mint_base(
         &spl_token_2022::id(),
@@ -105,21 +120,20 @@ pub async fn create_confidential_mint(
 
 /// Update the mint's auditor ElGamal pubkey (auditor-key rotation). Does not
 /// touch `auto_approve_new_accounts`, which is re-sent unchanged.
-pub async fn rotate_auditor_key(
+pub fn rotate_auditor_key(
     client: &RpcClient,
     payer: &dyn Signer,
     mint: &Pubkey,
     mint_authority: &dyn Signer,
     new_auditor_elgamal: &ElGamalKeypair,
 ) -> SigResult {
-    let auditor_pod = to_legacy_pubkey(new_auditor_elgamal);
     let ix = update_confidential_transfer_mint(
         &spl_token_2022::id(),
         mint,
         &mint_authority.pubkey(),
         &[],
         true,
-        Some(auditor_pod),
+        Some(auditor_pod_pubkey(new_auditor_elgamal)),
     )?;
     let blockhash = client.get_latest_blockhash()?;
     let tx = Transaction::new_signed_with_payer(
@@ -168,18 +182,3 @@ pub fn read_total_supply(client: &RpcClient, mint: &Pubkey) -> CtResult<u64> {
     let acc = StateWithExtensions::<Mint>::unpack(&data.data)?;
     Ok(acc.base.supply)
 }
-
-pub fn read_auditor_pubkey_legacy(
-    client: &RpcClient,
-    mint: &Pubkey,
-) -> CtResult<Option<PodElGamalPubkey>> {
-    let data = client.get_account(mint)?;
-    let acc = StateWithExtensions::<Mint>::unpack(&data.data)?;
-    let ext = acc.get_extension::<ConfidentialTransferMint>()?;
-    Ok(ext.auditor_elgamal_pubkey.into())
-}
-
-/// Signature is unused by callers today but kept for parity with the other
-/// operation modules, which all return the confirming signature.
-#[allow(dead_code)]
-pub type MintSignature = Signature;

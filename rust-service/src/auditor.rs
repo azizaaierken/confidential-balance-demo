@@ -5,8 +5,8 @@
 //! Decryption fails safely (returns `Ok(None)`) if the ciphertext was
 //! encrypted to a different auditor generation's pubkey than the one whose
 //! secret is supplied here — the discrete log search simply finds no match.
-//! This is what gives CB-07's "wrong generation fails safely" requirement for
-//! free, with no special-case check needed.
+//! This is what makes "wrong generation fails safely" hold with no
+//! special-case check needed.
 
 use crate::types::*;
 use solana_zk_sdk::encryption::elgamal::{ElGamalCiphertext, ElGamalKeypair};
@@ -38,7 +38,7 @@ pub fn decrypt_auditor_amount(
     let lo_amount = lo_ct.decrypt_u32(auditor_elgamal.secret());
     let hi_amount = hi_ct.decrypt_u32(auditor_elgamal.secret());
     match (lo_amount, hi_amount) {
-        (Some(lo), Some(hi)) => Ok(Some((lo as u64) + ((hi as u64) << 16))),
+        (Some(lo), Some(hi)) => Ok(Some(lo + (hi << 16))),
         _ => Ok(None),
     }
 }

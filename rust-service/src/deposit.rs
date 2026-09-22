@@ -10,7 +10,7 @@ use solana_client::rpc_client::RpcClient;
 use solana_sdk::{signature::Signer, transaction::Transaction};
 use spl_token_2022::extension::confidential_transfer::instruction::deposit;
 
-pub async fn deposit_to_confidential(
+pub fn deposit_to_confidential(
     client: &RpcClient,
     payer: &dyn Signer,
     authority: &dyn Signer,
@@ -31,7 +31,7 @@ pub async fn deposit_to_confidential(
         amount,
         decimals,
         &authority.pubkey(),
-        &[&authority.pubkey()],
+        &[],
     )?;
 
     let recent_blockhash = client.get_latest_blockhash()?;

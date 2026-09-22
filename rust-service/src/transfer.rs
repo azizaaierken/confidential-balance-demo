@@ -20,8 +20,12 @@
 //! ciphertext exists only in this transaction's instruction data — Token-2022
 //! does not persist it in any account after confirmation — so a caller that
 //! wants per-transfer auditor disclosure later must capture it here, now.
+//!
+//! `simulate_transfer` runs the identical build path and asks the cluster to
+//! simulate the resulting transaction instead of sending it.
 
 use crate::ata::get_associated_token_address_with_program_id;
+use crate::keys;
 use crate::types::*;
 use base64::prelude::{Engine as _, BASE64_STANDARD};
 use solana_client::{
@@ -35,8 +39,8 @@ use solana_sdk::{
 use solana_transaction::versioned::VersionedTransaction;
 use solana_zk_elgamal_proof_interface::instruction::ProofInstruction;
 use solana_zk_sdk::encryption::{
-    auth_encryption::{AeCiphertext, AeKey},
-    elgamal::{ElGamalCiphertext, ElGamalKeypair, ElGamalPubkey},
+    auth_encryption::AeCiphertext,
+    elgamal::{ElGamalCiphertext, ElGamalPubkey},
 };
 use solana_zk_sdk_pod::encryption::{auth_encryption::PodAeCiphertext, elgamal::PodElGamalPubkey};
 use spl_token_2022::extension::{
@@ -73,30 +77,14 @@ struct BuiltTransfer {
     auditor_ciphertext_hi_hex: Option<String>,
 }
 
-#[allow(clippy::too_many_arguments)]
-async fn build_transfer(
+fn build_transfer(
     client: &RpcClient,
     payer: &dyn Signer,
     sender: &Keypair,
     mint: &Pubkey,
     recipient: &Pubkey,
     amount: u64,
-    progress: ProgressSink<'_>,
 ) -> CtResult<BuiltTransfer> {
-    let phase = |name: &str, detail: &str| {
-        emit(
-            progress,
-            TransferProgress::Phase {
-                name: name.to_string(),
-                detail: detail.to_string(),
-            },
-        );
-    };
-    phase(
-        "fetch-state",
-        "Reading recipient and auditor pubkeys from chain",
-    );
-
     let sender_token_account =
         get_associated_token_address_with_program_id(&sender.pubkey(), mint, &spl_token_2022::id());
     let recipient_token_account =
@@ -123,15 +111,7 @@ async fn build_transfer(
         })
         .transpose()?;
 
-    phase(
-        "derive-keys",
-        "Deriving sender's ElGamal and AES keys from authority signature",
-    );
-    let sender_elgamal =
-        ElGamalKeypair::new_from_signer_legacy(sender, &sender_token_account.to_bytes())
-            .map_err(|e| format!("derive sender ElGamal: {e}"))?;
-    let sender_aes = AeKey::new_from_signer_legacy(sender, &sender_token_account.to_bytes())
-        .map_err(|e| format!("derive sender AES: {e}"))?;
+    let (sender_elgamal, sender_aes) = keys::derive_account_keys(sender, &sender_token_account)?;
 
     let sender_acc_data = client.get_account(&sender_token_account)?;
     let sender_acc =
@@ -147,10 +127,6 @@ async fn build_transfer(
         .try_into()
         .map_err(|e| format!("sender decryptable balance: {e:?}"))?;
 
-    phase(
-        "generate-proofs",
-        "Generating equality, ciphertext-validity, and range proofs",
-    );
     let proof_data = transfer_split_proof_data(
         &current_available,
         &current_decryptable,
@@ -181,11 +157,6 @@ async fn build_transfer(
     } else {
         (None, None)
     };
-
-    phase(
-        "build-transaction",
-        "Assembling proof-verify and transfer instructions into one V1 transaction",
-    );
 
     let current_avail_plaintext = current_decryptable
         .decrypt(&sender_aes)
@@ -261,40 +232,17 @@ async fn build_transfer(
     })
 }
 
-#[allow(clippy::too_many_arguments)]
-pub async fn transfer_confidential_with_progress(
+/// Build, sign, submit and confirm one confidential transfer.
+pub fn transfer_confidential(
     client: &RpcClient,
     payer: &dyn Signer,
     sender: &Keypair,
     mint: &Pubkey,
     recipient: &Pubkey,
     amount: u64,
-    progress: ProgressSink<'_>,
 ) -> CtResult<TransferOutcome> {
-    let built = build_transfer(client, payer, sender, mint, recipient, amount, progress).await?;
-
-    emit(
-        progress,
-        TransferProgress::Phase {
-            name: "submit-transfer".to_string(),
-            detail: "Submitting the single confidential-transfer transaction".to_string(),
-        },
-    );
-
+    let built = build_transfer(client, payer, sender, mint, recipient, amount)?;
     let sig: Signature = client.send_and_confirm_transaction(&built.tx)?;
-    emit(
-        progress,
-        TransferProgress::Signature {
-            label: "submit-transfer".to_string(),
-            sig: sig.to_string(),
-        },
-    );
-    emit(
-        progress,
-        TransferProgress::Done {
-            sigs: vec![sig.to_string()],
-        },
-    );
 
     Ok(TransferOutcome {
         steps: vec![LabeledSignature::new("submit_transfer_v1", &sig)],
@@ -308,7 +256,7 @@ pub async fn transfer_confidential_with_progress(
 /// takes right up to `send_and_confirm_transaction`, so the verdict covers
 /// what an approximation can't: proof verification actually passing, the
 /// compute budget actually sufficing, the accounts actually being configured.
-pub async fn simulate_transfer(
+pub fn simulate_transfer(
     client: &RpcClient,
     payer: &dyn Signer,
     sender: &Keypair,
@@ -316,7 +264,7 @@ pub async fn simulate_transfer(
     recipient: &Pubkey,
     amount: u64,
 ) -> CtResult<TransferSimulation> {
-    let built = build_transfer(client, payer, sender, mint, recipient, amount, None).await?;
+    let built = build_transfer(client, payer, sender, mint, recipient, amount)?;
     let sim = client.simulate_transaction(&built.tx)?.value;
     let fee_lamports = match &built.tx.message {
         VersionedMessage::V1(message) => fee_for_v1_message(client, message),

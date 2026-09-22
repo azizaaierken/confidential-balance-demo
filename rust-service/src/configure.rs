@@ -1,14 +1,15 @@
 //! Configure a token account for confidential transfers (bypass mode).
 //!
-//! Generates the PubkeyValidity proof using `solana-zk-sdk = 6.0.1` (the
-//! format the deployed devnet program expects), pre-verifies it into a
-//! context state account, and references the account in
-//! `spl-token-2022 = 10.0.0`'s `configure_account` via
-//! `ProofLocation::ContextStateAccount`.
+//! Generates the PubkeyValidity proof for the account's freshly derived
+//! ElGamal key, pre-verifies it into a context-state account owned by the ZK
+//! ElGamal Proof program, and references that account from
+//! `configure_account` via `ProofLocation::ContextStateAccount`, all in one
+//! legacy transaction.
 //!
 //! Adapted from solana-foundation/Confidential-Balances-Sample.
 
 use crate::ata::get_associated_token_address_with_program_id;
+use crate::keys;
 use crate::types::*;
 use solana_address::Address;
 use solana_client::rpc_client::RpcClient;
@@ -23,10 +24,7 @@ use solana_zk_elgamal_proof_interface::{
     proof_data::{PubkeyValidityProofContext, PubkeyValidityProofData},
     state::ProofContextState,
 };
-use solana_zk_sdk::{
-    encryption::{auth_encryption::AeKey, elgamal::ElGamalKeypair},
-    zk_elgamal_proof_program::pubkey_validity::build_pubkey_validity_proof_data,
-};
+use solana_zk_sdk::zk_elgamal_proof_program::pubkey_validity::build_pubkey_validity_proof_data;
 use solana_zk_sdk_pod::encryption::auth_encryption::PodAeCiphertext;
 use spl_token_2022::{
     extension::{confidential_transfer::instruction::configure_account, ExtensionType},
@@ -35,10 +33,13 @@ use spl_token_2022::{
 use spl_token_confidential_transfer_proof_extraction::instruction::ProofLocation;
 use std::mem::size_of;
 
-const ZK_PROOF_PROGRAM_ID: Pubkey =
+/// The native ZK ElGamal Proof program that verifies every proof this demo
+/// submits. Exposed so the API can report it without a second copy of the
+/// literal.
+pub const ZK_PROOF_PROGRAM_ID: Pubkey =
     solana_sdk::pubkey!("ZkE1Gama1Proof11111111111111111111111111111");
 
-pub async fn configure_account_for_confidential_transfers(
+pub fn configure_account_for_confidential_transfers(
     client: &RpcClient,
     payer: &dyn Signer,
     authority: &dyn Signer,
@@ -49,12 +50,7 @@ pub async fn configure_account_for_confidential_transfers(
         mint,
         &spl_token_2022::id(),
     );
-
-    let elgamal_keypair =
-        ElGamalKeypair::new_from_signer_legacy(authority, &token_account.to_bytes())
-            .map_err(|e| format!("derive ElGamal keypair: {e}"))?;
-    let aes_key = AeKey::new_from_signer_legacy(authority, &token_account.to_bytes())
-        .map_err(|e| format!("derive AES key: {e}"))?;
+    let (elgamal_keypair, aes_key) = keys::derive_account_keys(authority, &token_account)?;
 
     let max_pending_balance_credit_counter: u64 = 65536;
 
@@ -72,7 +68,7 @@ pub async fn configure_account_for_confidential_transfers(
         &token_account,
         &payer.pubkey(),
         &authority.pubkey(),
-        &[&authority.pubkey()],
+        &[],
         &[ExtensionType::ConfidentialTransferAccount],
     )?;
 

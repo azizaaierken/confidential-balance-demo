@@ -7,7 +7,7 @@
 //! For confidential transfers specifically, the auditor's ElGamal ciphertext
 //! of the amount is captured here too, at the moment of transfer — Token-2022
 //! does not persist that ciphertext in any account after confirmation, so it
-//! must be captured now or never (see `transfer::transfer_confidential_with_progress`).
+//! must be captured now or never (see `transfer::transfer_confidential`).
 
 use crate::types::LabeledSignature;
 use anyhow::{Context, Result};
@@ -28,15 +28,12 @@ pub struct ActivityEntry {
     pub timestamp: i64,
     pub signature: String,
     pub signatures: Vec<String>,
-    // Technical evidence: what each real transaction in this operation
-    // actually did. Solscan only reliably decodes the Token-2022 instruction
-    // itself — the separate ZK ElGamal Proof program instructions riding
-    // alongside it (proof verification, inline in the same V1 transaction as
-    // of the transfer/withdraw rewrite; older entries may instead carry
-    // several transactions' worth of context-state create/verify/close
-    // steps) show up there as "Unknown: Unknown" (confirmed by hand against
-    // a real transaction). This is our own record of what each one was for,
-    // since only this service actually knows.
+    // Technical evidence: what each real transaction in this operation did.
+    // Every current operation is a single transaction, with the ZK ElGamal
+    // Proof program's verify instructions riding inline (Solscan shows those
+    // as "Unknown: Unknown", confirmed by hand). Entries written by earlier
+    // versions of this service may carry several transactions' worth of
+    // context-state create/verify/close steps instead.
     #[serde(default)]
     pub steps: Vec<LabeledSignature>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -57,8 +54,6 @@ pub struct ActivityEntry {
     // would show an amount as "disclosed" that no auditor ever disclosed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub disclosed_amount_ui: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub origin_agent_proposal_id: Option<String>,
     // The real amount for a confidential_transfer, known to the service at
     // execution time (it's what was requested) — never serialized as-is (see
     // server.rs's redaction pass, which reads this to populate

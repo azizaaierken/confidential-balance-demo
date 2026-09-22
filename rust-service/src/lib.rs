@@ -1,10 +1,14 @@
-// This demo's devnet accounts were all provisioned under solana-zk-sdk's
-// original SHA3-512 key-derivation scheme, before the HKDF-SHA512 migration
-// introduced `derive_confidential_keys`. Switching derivation would produce
-// different ElGamal/AES keys, unable to decrypt any already-configured
-// account — so every persona's keys are deliberately still derived via the
-// now-`_legacy`-suffixed functions, pinned on purpose, not left over.
-#![allow(deprecated)]
+//! Devnet backend for the Confidential Balance demo: Token-2022 confidential
+//! transfer operations (configure, deposit, apply-pending, transfer,
+//! withdraw), auditor-key management and disclosure, plus the local keypair,
+//! activity-log and auth registries the HTTP server in `bin/server.rs` sits
+//! on top of.
+//!
+//! Every operation module is synchronous: the Solana RPC client used here is
+//! the blocking one, and the server runs each call on tokio's blocking pool.
+//! Confidential keys are derived in exactly one place (`keys`), using the
+//! SDK's current HKDF scheme by default — see `keys::legacy_kdf_enabled` for
+//! the opt-in that keeps pre-migration devnet accounts readable.
 
 pub mod activity;
 pub mod apply_pending;

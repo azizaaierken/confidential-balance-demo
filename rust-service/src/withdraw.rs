@@ -10,6 +10,7 @@
 //! Adapted from solana-foundation/Confidential-Balances-Sample.
 
 use crate::ata::get_associated_token_address_with_program_id;
+use crate::keys;
 use crate::types::*;
 use solana_client::rpc_client::RpcClient;
 use solana_message::{v1, VersionedMessage};
@@ -18,10 +19,7 @@ use solana_sdk::{
     signature::{Signature, Signer},
 };
 use solana_transaction::versioned::VersionedTransaction;
-use solana_zk_sdk::encryption::{
-    auth_encryption::AeKey,
-    elgamal::{ElGamalCiphertext, ElGamalKeypair},
-};
+use solana_zk_sdk::encryption::{auth_encryption::AeCiphertext, elgamal::ElGamalCiphertext};
 use spl_token_2022::extension::{
     confidential_transfer::{instruction::withdraw, ConfidentialTransferAccount},
     BaseStateWithExtensions, StateWithExtensions,
@@ -38,7 +36,7 @@ const COMPUTE_UNIT_LIMIT: u32 = 1_400_000;
 /// for explicitly, or it defaults to 0 bytes rather than the legacy default.
 const LOADED_ACCOUNTS_DATA_SIZE_LIMIT: u32 = 64 * 1024 * 1024;
 
-pub async fn withdraw_from_confidential(
+pub fn withdraw_from_confidential(
     client: &RpcClient,
     payer: &dyn Signer,
     authority: &dyn Signer,
@@ -51,31 +49,32 @@ pub async fn withdraw_from_confidential(
         mint,
         &spl_token_2022::id(),
     );
-
-    let elgamal_keypair =
-        ElGamalKeypair::new_from_signer_legacy(authority, &token_account.to_bytes())
-            .map_err(|e| format!("derive ElGamal keypair: {e}"))?;
-    let aes_key = AeKey::new_from_signer_legacy(authority, &token_account.to_bytes())
-        .map_err(|e| format!("derive AES key: {e}"))?;
+    let (elgamal_keypair, aes_key) = keys::derive_account_keys(authority, &token_account)?;
 
     let account_data = client.get_account(&token_account)?;
     let account =
         StateWithExtensions::<spl_token_2022::state::Account>::unpack(&account_data.data)?;
     let ct_extension = account.get_extension::<ConfidentialTransferAccount>()?;
 
+    // The ElGamal ciphertext is what the proof is generated against; the
+    // plaintext comes from the owner's own AES-encrypted copy of the same
+    // balance, which is what that field exists for (and is instant, unlike a
+    // discrete-log search that also tops out at 32 bits).
     let available_balance: ElGamalCiphertext = ct_extension
         .available_balance
         .try_into()
         .map_err(|e| format!("decode available_balance: {e:?}"))?;
-
-    let current_available = available_balance
-        .decrypt_u32(elgamal_keypair.secret())
-        .ok_or("decrypt available balance")? as u64;
+    let decryptable: AeCiphertext = ct_extension
+        .decryptable_available_balance
+        .try_into()
+        .map_err(|e| format!("decode decryptable_available_balance: {e:?}"))?;
+    let current_available = aes_key
+        .decrypt(&decryptable)
+        .ok_or("decrypt available balance: derived AES key does not match this account")?;
 
     if current_available < amount {
         return Err(format!(
-            "Insufficient confidential balance: have {}, need {}",
-            current_available, amount
+            "Insufficient confidential balance: have {current_available}, need {amount}"
         )
         .into());
     }

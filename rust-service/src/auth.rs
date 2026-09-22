@@ -55,6 +55,12 @@ fn env_password(var: &str, demo_default: &str) -> String {
     std::env::var(var).unwrap_or_else(|_| demo_default.to_string())
 }
 
+impl Default for AuthRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AuthRegistry {
     pub fn new() -> Self {
         let mut passwords = HashMap::new();
@@ -157,5 +163,66 @@ pub fn require_auditor(roles: &[Role]) -> Result<()> {
         Err(anyhow!(
             "not authorized as auditor — unlock auditor access first"
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::HeaderValue;
+
+    fn registry() -> AuthRegistry {
+        AuthRegistry::new()
+    }
+
+    fn headers(tokens: &[&str]) -> HeaderMap {
+        let mut h = HeaderMap::new();
+        h.insert(
+            "x-auth-tokens",
+            HeaderValue::from_str(&tokens.join(",")).unwrap(),
+        );
+        h
+    }
+
+    #[test]
+    fn login_rejects_wrong_password() {
+        let r = registry();
+        assert!(r.login(Role::Auditor, "nope", 0).is_err());
+    }
+
+    #[test]
+    fn token_resolves_to_its_role_until_expiry() {
+        let r = registry();
+        let t = r.login(Role::OwnerSender, "sender-demo", 1_000).unwrap();
+        assert_eq!(r.roles_for(&headers(&[&t]), 1_000), vec![Role::OwnerSender]);
+        assert_eq!(
+            r.roles_for(&headers(&[&t]), 1_000 + TOKEN_TTL_MS + 1),
+            Vec::<Role>::new()
+        );
+    }
+
+    #[test]
+    fn several_tokens_combine_and_unknown_ones_are_ignored() {
+        let r = registry();
+        let s = r.login(Role::OwnerSender, "sender-demo", 0).unwrap();
+        let a = r.login(Role::Auditor, "auditor-demo", 0).unwrap();
+        let roles = r.roles_for(&headers(&[&s, "garbage", &a]), 0);
+        assert!(roles.contains(&Role::OwnerSender));
+        assert!(roles.contains(&Role::Auditor));
+        assert!(!roles.contains(&Role::OwnerReceiver));
+    }
+
+    #[test]
+    fn owner_check_is_per_account() {
+        assert!(require_owner(&[Role::OwnerSender], "sender").is_ok());
+        assert!(require_owner(&[Role::OwnerSender], "receiver").is_err());
+        assert!(require_owner(&[Role::Auditor], "sender").is_err());
+        assert!(require_owner(&[], "sender").is_err());
+    }
+
+    #[test]
+    fn auditor_check_requires_auditor_role() {
+        assert!(require_auditor(&[Role::Auditor]).is_ok());
+        assert!(require_auditor(&[Role::OwnerSender, Role::OwnerReceiver]).is_err());
     }
 }

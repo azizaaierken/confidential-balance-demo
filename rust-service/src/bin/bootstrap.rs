@@ -5,9 +5,8 @@
 use rust_service::setup;
 use solana_sdk::signature::Signer;
 
-#[tokio::main]
-async fn main() {
-    match setup::load_or_bootstrap().await {
+fn main() {
+    match setup::load_or_bootstrap() {
         Ok(env) => {
             println!("devnet environment ready.");
             println!("  payer:            {}", env.payer.pubkey());

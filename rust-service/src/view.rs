@@ -1,17 +1,20 @@
-//! Decrypt and read an account's public/pending/available balances. The
-//! service holds every persona's keypair locally, so it can always decrypt —
-//! view permissions (owner-only vs public-observer) are enforced entirely by
-//! the frontend, exactly as they are today against simulated data.
+//! Decrypt and read an account's public/pending/available balances.
+//!
+//! The service holds every persona's keypair, so it can always decrypt both
+//! confidential balances. Who gets to *see* the plaintext is decided per
+//! request in `server.rs`'s `read_state`, from the caller's auth tokens —
+//! this module just reads and decrypts.
+//!
+//! Decryption failure is an error, never a zero: a wrong key-derivation
+//! scheme or a corrupt keypair file must surface as such rather than render
+//! as an empty balance.
 
 use crate::ata::get_associated_token_address_with_program_id;
+use crate::keys;
 use crate::types::CtResult;
 use solana_client::rpc_client::RpcClient;
 use solana_sdk::signature::{Keypair, Signer};
-use solana_zk_sdk::encryption::{
-    auth_encryption::AeCiphertext, auth_encryption::AeKey, elgamal::ElGamalCiphertext,
-    elgamal::ElGamalKeypair,
-};
-use solana_zk_sdk_pod::encryption::elgamal::PodElGamalCiphertext as PodElGamalCiphertextV6;
+use solana_zk_sdk::encryption::{auth_encryption::AeCiphertext, elgamal::ElGamalCiphertext};
 use spl_token_2022::{
     extension::{
         confidential_transfer::ConfidentialTransferAccount, BaseStateWithExtensions,
@@ -40,6 +43,16 @@ fn fingerprint(bytes: &[u8]) -> String {
     }
 }
 
+/// The hint appended to every decryption failure: by far the most likely
+/// cause in this demo is a key-derivation mismatch, not a corrupt account.
+fn kdf_hint() -> String {
+    format!(
+        "the key derived from the owner's signature does not decrypt this account; \
+         if the account was configured before the SDK's HKDF migration, run with {}=1",
+        keys::LEGACY_KDF_ENV
+    )
+}
+
 pub fn read_account_view(
     rpc: &RpcClient,
     mint: &solana_sdk::pubkey::Pubkey,
@@ -58,54 +71,58 @@ pub fn read_account_view(
         .map_err(|e| format!("unpack token account: {e}"))?;
     let public = acc.base.amount;
 
-    let ct_ext = acc.get_extension::<ConfidentialTransferAccount>().ok();
-    let (pending, available, available_fp, pending_fp) = match ct_ext {
-        Some(ext) => {
-            let elgamal = ElGamalKeypair::new_from_signer_legacy(owner, &token_account.to_bytes())
-                .map_err(|e| format!("derive ElGamal keypair: {e}"))?;
-            let aes = AeKey::new_from_signer_legacy(owner, &token_account.to_bytes())
-                .map_err(|e| format!("derive AES key: {e}"))?;
-
-            let pending_lo_v6 = PodElGamalCiphertextV6(
-                bytemuck::bytes_of(&ext.pending_balance_lo)
-                    .try_into()
-                    .map_err(|_| "pending_balance_lo size")?,
-            );
-            let pending_hi_v6 = PodElGamalCiphertextV6(
-                bytemuck::bytes_of(&ext.pending_balance_hi)
-                    .try_into()
-                    .map_err(|_| "pending_balance_hi size")?,
-            );
-            let pending_lo: ElGamalCiphertext = pending_lo_v6
-                .try_into()
-                .map_err(|e| format!("decode pending_lo: {e:?}"))?;
-            let pending_hi: ElGamalCiphertext = pending_hi_v6
-                .try_into()
-                .map_err(|e| format!("decode pending_hi: {e:?}"))?;
-            let pending_lo_v = pending_lo.decrypt_u32(elgamal.secret()).unwrap_or(0) as u64;
-            let pending_hi_v = pending_hi.decrypt_u32(elgamal.secret()).unwrap_or(0) as u64;
-            let pending_total = pending_lo_v + (pending_hi_v << 16);
-
-            let avail_aes_bytes: [u8; 36] = bytemuck::bytes_of(&ext.decryptable_available_balance)
-                .try_into()
-                .map_err(|_| "decryptable_available_balance size")?;
-            let avail_aes =
-                AeCiphertext::from_bytes(&avail_aes_bytes).ok_or("decode AeCiphertext")?;
-            let available = aes.decrypt(&avail_aes).unwrap_or(0);
-
-            let available_fp = fingerprint(bytemuck::bytes_of(&ext.available_balance));
-            let pending_fp = fingerprint(bytemuck::bytes_of(&ext.pending_balance_lo));
-
-            (pending_total, available, available_fp, pending_fp)
-        }
-        None => (0, 0, String::new(), String::new()),
+    let Ok(ext) = acc.get_extension::<ConfidentialTransferAccount>() else {
+        return Ok(AccountView {
+            public,
+            ..AccountView::default()
+        });
     };
+
+    let (elgamal, aes) = keys::derive_account_keys(owner, &token_account)?;
+
+    // Pending balance is only ever ElGamal-encrypted (deposits and incoming
+    // transfers are added homomorphically by the program, which has no AES
+    // key), so it has to be recovered by discrete-log search on the two
+    // 16-bit halves. Available balance additionally carries an AES
+    // ciphertext the owner wrote for exactly this purpose, so read that.
+    let pending_lo: ElGamalCiphertext = ext
+        .pending_balance_lo
+        .try_into()
+        .map_err(|e| format!("decode pending_balance_lo: {e:?}"))?;
+    let pending_hi: ElGamalCiphertext = ext
+        .pending_balance_hi
+        .try_into()
+        .map_err(|e| format!("decode pending_balance_hi: {e:?}"))?;
+    let pending_lo_v = pending_lo.decrypt_u32(elgamal.secret()).ok_or_else(|| {
+        format!(
+            "decrypt pending_balance_lo of {token_account}: {}",
+            kdf_hint()
+        )
+    })?;
+    let pending_hi_v = pending_hi.decrypt_u32(elgamal.secret()).ok_or_else(|| {
+        format!(
+            "decrypt pending_balance_hi of {token_account}: {}",
+            kdf_hint()
+        )
+    })?;
+    let pending = pending_lo_v + (pending_hi_v << 16);
+
+    let decryptable: AeCiphertext = ext
+        .decryptable_available_balance
+        .try_into()
+        .map_err(|e| format!("decode decryptable_available_balance: {e:?}"))?;
+    let available = aes.decrypt(&decryptable).ok_or_else(|| {
+        format!(
+            "decrypt decryptable_available_balance of {token_account}: {}",
+            kdf_hint()
+        )
+    })?;
 
     Ok(AccountView {
         public,
         pending,
         available,
-        available_ciphertext_fingerprint: available_fp,
-        pending_ciphertext_fingerprint: pending_fp,
+        available_ciphertext_fingerprint: fingerprint(bytemuck::bytes_of(&ext.available_balance)),
+        pending_ciphertext_fingerprint: fingerprint(bytemuck::bytes_of(&ext.pending_balance_lo)),
     })
 }

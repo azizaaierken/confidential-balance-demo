@@ -2,10 +2,10 @@
 //! operation module in `rust_service` behind plain REST endpoints so the
 //! Next.js app can drive real devnet Token-2022 confidential transfers
 //! without holding any signing key itself — every key lives here, locally.
-
-// See rust_service::lib's crate-level `allow(deprecated)` — the auditor-key
-// rotation handler below derives a new key with the same pinned legacy KDF.
-#![allow(deprecated)]
+//!
+//! Every operation module is synchronous and talks to the cluster through
+//! the blocking RPC client, so each handler moves its work onto tokio's
+//! blocking pool via `run_blocking` rather than stalling an async worker.
 
 use anyhow::{anyhow, Result};
 use axum::{
@@ -20,7 +20,7 @@ use rust_service::{
     apply_pending, auditor,
     auditor_registry::AuditorRegistry,
     auth::{self, AuthRegistry, Role},
-    deposit, mint, setup, transfer,
+    configure, deposit, keys, mint, setup, transfer,
     types::LabeledSignature,
     view, withdraw,
 };
@@ -32,8 +32,32 @@ use tower_http::cors::CorsLayer;
 
 const DECIMALS: u8 = setup::MINT_DECIMALS;
 
-fn ui_to_base(ui: f64) -> u64 {
-    (ui * 10f64.powi(DECIMALS as i32)).round() as u64
+/// Largest UI amount a request may carry. Well above anything the demo
+/// mints, and far below where `f64 -> u64` would start losing precision.
+const MAX_UI_AMOUNT: f64 = 1_000_000_000.0;
+
+/// Convert a UI amount to base units, refusing anything that isn't a
+/// positive finite number in range. Without this, a negative or NaN amount
+/// saturates to 0 and a zero-value transaction gets built, proved and paid
+/// for.
+fn ui_to_base(ui: f64) -> Result<u64> {
+    if !ui.is_finite() {
+        return Err(anyhow!("amount must be a finite number"));
+    }
+    if ui <= 0.0 {
+        return Err(anyhow!("amount must be greater than zero"));
+    }
+    if ui > MAX_UI_AMOUNT {
+        return Err(anyhow!("amount exceeds the maximum of {MAX_UI_AMOUNT}"));
+    }
+    let base = (ui * 10f64.powi(DECIMALS as i32)).round();
+    if base < 1.0 {
+        return Err(anyhow!(
+            "amount is below the smallest unit ({} decimals)",
+            DECIMALS
+        ));
+    }
+    Ok(base as u64)
 }
 fn base_to_ui(base: u64) -> f64 {
     base as f64 / 10f64.powi(DECIMALS as i32)
@@ -49,6 +73,7 @@ fn now_ms() -> i64 {
 #[derive(Clone)]
 struct AppState {
     rpc: Arc<RpcClient>,
+    rpc_url: String,
     payer: Arc<Keypair>,
     mint: Arc<Keypair>,
     mint_authority: Arc<Keypair>,
@@ -132,6 +157,9 @@ struct MintView {
     program_id: String,
     zk_proof_program_id: String,
     confidential_transfer_authority: String,
+    /// Who actually pays transaction fees for every operation: the service's
+    /// own payer keypair, never a persona. Reported so the UI can say so.
+    fee_payer: String,
     extensions: Vec<String>,
     auto_approve_new_accounts: bool,
     cluster: String,
@@ -198,8 +226,6 @@ struct TransferBody {
     from_account_id: String,
     to_account_id: String,
     amount: f64,
-    #[serde(default)]
-    origin_agent_proposal_id: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -256,8 +282,16 @@ async fn main() -> Result<()> {
         )
         .init();
 
-    let env = setup::load_or_bootstrap()
+    if keys::legacy_kdf_enabled() {
+        tracing::warn!(
+            "{}=1: deriving confidential keys with the deprecated pre-HKDF scheme",
+            keys::LEGACY_KDF_ENV
+        );
+    }
+    let rpc_url = setup::rpc_url();
+    let env = tokio::task::spawn_blocking(setup::load_or_bootstrap)
         .await
+        .map_err(|e| anyhow!("bootstrap join: {e}"))?
         .map_err(|e| anyhow!("{e}"))?;
     tracing::info!("mint:     {}", env.mint.pubkey());
     tracing::info!("sender:   {}", env.sender.pubkey());
@@ -281,6 +315,7 @@ async fn main() -> Result<()> {
 
     let state = AppState {
         rpc: Arc::new(env.rpc),
+        rpc_url,
         payer: Arc::new(env.payer),
         mint: Arc::new(env.mint),
         mint_authority: Arc::new(env.mint_authority),
@@ -326,7 +361,8 @@ async fn state_handler(
     headers: HeaderMap,
 ) -> ApiResult<StateResponse> {
     let roles = s.auth.roles_for(&headers, now_ms());
-    Ok(Json(read_state(&s, &roles)?))
+    let state = run_blocking(s, move |s| read_state(&s, &roles)).await?;
+    Ok(Json(state))
 }
 
 async fn login_handler(
@@ -351,45 +387,48 @@ async fn mint_handler(
     Json(body): Json<AmountBody>,
 ) -> ApiResult<ActionResponse> {
     let roles = s.auth.roles_for(&headers, now_ms());
-    let recipient = s.signer_for(&body.account_id)?;
-    let amount_base = ui_to_base(body.amount);
-    let sig = mint::mint_additional_supply(
-        &s.rpc,
-        s.payer.as_ref(),
-        &s.mint.pubkey(),
-        s.mint_authority.as_ref(),
-        &recipient.pubkey(),
-        amount_base,
-    )
-    .map_err(|e| anyhow!("mint failed: {e}"))?;
+    let amount_base = ui_to_base(body.amount).map_err(AppError::bad_request)?;
+    let response = run_blocking(s, move |s| {
+        let recipient = s.signer_for(&body.account_id)?;
+        let sig = mint::mint_additional_supply(
+            &s.rpc,
+            s.payer.as_ref(),
+            &s.mint.pubkey(),
+            s.mint_authority.as_ref(),
+            &recipient.pubkey(),
+            amount_base,
+        )
+        .map_err(|e| anyhow!("mint failed: {e}"))?;
 
-    s.activity.append(ActivityEntry {
-        id: format!("act-{}", &sig.to_string()[..12]),
-        kind: "mint".to_string(),
-        from_account_id: "mint".to_string(),
-        to_account_id: body.account_id.clone(),
-        status: "confirmed".to_string(),
-        privacy: "public".to_string(),
-        timestamp: now_ms(),
-        signature: sig.to_string(),
-        signatures: vec![sig.to_string()],
-        steps: vec![LabeledSignature::new("mint", &sig)],
-        public_amount_ui: Some(body.amount),
-        auditor_key_generation_id: None,
-        auditor_ciphertext_lo_hex: None,
-        auditor_ciphertext_hi_hex: None,
-        disclosed_amount_ui: None,
-        origin_agent_proposal_id: None,
-        party_amount_ui: None,
-        party_visible_amount_ui: None,
-    })?;
+        s.activity.append(ActivityEntry {
+            id: format!("act-{}", &sig.to_string()[..12]),
+            kind: "mint".to_string(),
+            from_account_id: "mint".to_string(),
+            to_account_id: body.account_id.clone(),
+            status: "confirmed".to_string(),
+            privacy: "public".to_string(),
+            timestamp: now_ms(),
+            signature: sig.to_string(),
+            signatures: vec![sig.to_string()],
+            steps: vec![LabeledSignature::new("mint", &sig)],
+            public_amount_ui: Some(body.amount),
+            auditor_key_generation_id: None,
+            auditor_ciphertext_lo_hex: None,
+            auditor_ciphertext_hi_hex: None,
+            disclosed_amount_ui: None,
+            party_amount_ui: None,
+            party_visible_amount_ui: None,
+        })?;
 
-    Ok(Json(ActionResponse {
-        ok: true,
-        signature: sig.to_string(),
-        signatures: vec![sig.to_string()],
-        state: read_state(&s, &roles)?,
-    }))
+        Ok(ActionResponse {
+            ok: true,
+            signature: sig.to_string(),
+            signatures: vec![sig.to_string()],
+            state: read_state(&s, &roles)?,
+        })
+    })
+    .await?;
+    Ok(Json(response))
 }
 
 async fn deposit_handler(
@@ -399,9 +438,9 @@ async fn deposit_handler(
 ) -> ApiResult<ActionResponse> {
     let roles = s.auth.roles_for(&headers, now_ms());
     auth::require_owner(&roles, &body.account_id).map_err(AppError::unauthorized)?;
-    let response = run_blocking(s, move |s| async move {
+    let amount_base = ui_to_base(body.amount).map_err(AppError::bad_request)?;
+    let response = run_blocking(s, move |s| {
         let authority = s.signer_for(&body.account_id)?;
-        let amount_base = ui_to_base(body.amount);
         let sig = deposit::deposit_to_confidential(
             &s.rpc,
             s.payer.as_ref(),
@@ -410,7 +449,6 @@ async fn deposit_handler(
             amount_base,
             DECIMALS,
         )
-        .await
         .map_err(|e| anyhow!("deposit failed: {e}"))?;
 
         s.activity.append(ActivityEntry {
@@ -429,7 +467,6 @@ async fn deposit_handler(
             auditor_ciphertext_lo_hex: None,
             auditor_ciphertext_hi_hex: None,
             disclosed_amount_ui: None,
-            origin_agent_proposal_id: None,
             party_amount_ui: None,
             party_visible_amount_ui: None,
         })?;
@@ -452,7 +489,7 @@ async fn apply_pending_handler(
 ) -> ApiResult<ActionResponse> {
     let roles = s.auth.roles_for(&headers, now_ms());
     auth::require_owner(&roles, &body.account_id).map_err(AppError::unauthorized)?;
-    let response = run_blocking(s, move |s| async move {
+    let response = run_blocking(s, move |s| {
         let authority = s.signer_for(&body.account_id)?;
         let outcome = apply_pending::apply_pending_balance(
             &s.rpc,
@@ -460,7 +497,6 @@ async fn apply_pending_handler(
             authority,
             &s.mint.pubkey(),
         )
-        .await
         .map_err(|e| anyhow!("apply_pending failed: {e}"))?;
 
         s.activity.append(ActivityEntry {
@@ -479,7 +515,6 @@ async fn apply_pending_handler(
             auditor_ciphertext_lo_hex: None,
             auditor_ciphertext_hi_hex: None,
             disclosed_amount_ui: None,
-            origin_agent_proposal_id: None,
             // The applied amount is still a confidential amount (moved from
             // pending into available balance, both encrypted) — never a
             // public one — so it's redacted the same way a transfer's own
@@ -507,9 +542,9 @@ async fn withdraw_handler(
 ) -> ApiResult<ActionResponse> {
     let roles = s.auth.roles_for(&headers, now_ms());
     auth::require_owner(&roles, &body.account_id).map_err(AppError::unauthorized)?;
-    let response = run_blocking(s, move |s| async move {
+    let amount_base = ui_to_base(body.amount).map_err(AppError::bad_request)?;
+    let response = run_blocking(s, move |s| {
         let authority = s.signer_for(&body.account_id)?;
-        let amount_base = ui_to_base(body.amount);
         let outcome = withdraw::withdraw_from_confidential(
             &s.rpc,
             s.payer.as_ref(),
@@ -518,7 +553,6 @@ async fn withdraw_handler(
             amount_base,
             DECIMALS,
         )
-        .await
         .map_err(|e| anyhow!("withdraw failed: {e}"))?;
 
         let sig = outcome
@@ -543,7 +577,6 @@ async fn withdraw_handler(
             auditor_ciphertext_lo_hex: None,
             auditor_ciphertext_hi_hex: None,
             disclosed_amount_ui: None,
-            origin_agent_proposal_id: None,
             party_amount_ui: None,
             party_visible_amount_ui: None,
         })?;
@@ -565,41 +598,31 @@ async fn transfer_handler(
     Json(body): Json<TransferBody>,
 ) -> ApiResult<ActionResponse> {
     let roles = s.auth.roles_for(&headers, now_ms());
-    // An agent-initiated transfer is authorized by the bank's own
-    // policy-check + human-approval flow (see the Agent Payments page and
-    // its DecisionRecord), not by the customer's own password — the whole
-    // point of that flow is that the bank-hosted agent acts without the
-    // customer in the loop. A manual, owner-driven send still requires the
-    // owner's own token.
-    if body.origin_agent_proposal_id.is_none() {
-        auth::require_owner(&roles, &body.from_account_id).map_err(AppError::unauthorized)?;
-    }
+    auth::require_owner(&roles, &body.from_account_id).map_err(AppError::unauthorized)?;
     // Token-2022 will happily process a transfer whose source and destination
     // are the same account — it just moves the amount out of that account's
     // available balance and into its own pending balance, confirming
     // successfully while paying a fee to achieve nothing. There is no such
     // thing as paying yourself in this demo's model, so refuse it here rather
-    // than let any caller (UI, agent, or curl) report it as a payment.
+    // than let any caller (UI or curl) report it as a payment.
     if body.from_account_id == body.to_account_id {
         return Err(AppError::bad_request(anyhow!(
             "a transfer's sender and recipient must be different accounts"
         )));
     }
-    let response = run_blocking(s, move |s| async move {
+    let amount_base = ui_to_base(body.amount).map_err(AppError::bad_request)?;
+    let response = run_blocking(s, move |s| {
         let sender = s.signer_for(&body.from_account_id)?;
         let recipient_pubkey = s.signer_for(&body.to_account_id)?.pubkey();
-        let amount_base = ui_to_base(body.amount);
 
-        let result = transfer::transfer_confidential_with_progress(
+        let result = transfer::transfer_confidential(
             &s.rpc,
             s.payer.as_ref(),
             sender,
             &s.mint.pubkey(),
             &recipient_pubkey,
             amount_base,
-            None,
         )
-        .await
         .map_err(|e| anyhow!("transfer failed: {e}"))?;
 
         let active_gen = s.active_generation()?;
@@ -626,7 +649,6 @@ async fn transfer_handler(
             auditor_ciphertext_lo_hex: result.auditor_ciphertext_lo_hex.clone(),
             auditor_ciphertext_hi_hex: result.auditor_ciphertext_hi_hex.clone(),
             disclosed_amount_ui: None,
-            origin_agent_proposal_id: body.origin_agent_proposal_id.clone(),
             party_amount_ui: Some(body.amount),
             party_visible_amount_ui: None,
         })?;
@@ -660,7 +682,8 @@ async fn transfer_simulate_handler(
             "a transfer's sender and recipient must be different accounts"
         )));
     }
-    let response = run_blocking(s, move |s| async move {
+    let amount_base = ui_to_base(body.amount).map_err(AppError::bad_request)?;
+    let response = run_blocking(s, move |s| {
         let sender = s.signer_for(&body.from_account_id)?;
         let recipient_pubkey = s.signer_for(&body.to_account_id)?.pubkey();
 
@@ -670,9 +693,8 @@ async fn transfer_simulate_handler(
             sender,
             &s.mint.pubkey(),
             &recipient_pubkey,
-            ui_to_base(body.amount),
+            amount_base,
         )
-        .await
         .map_err(|e| anyhow!("simulate failed: {e}"))?;
 
         Ok(SimulateResponse {
@@ -703,16 +725,25 @@ async fn auditor_rotate_handler(
     if !s.auth.check_password(Role::Auditor, &body.confirm_password) {
         return Err(AppError::unauthorized(anyhow!("wrong auditor password")));
     }
-    let response = run_blocking(s, move |s| async move {
+    let response = run_blocking(s, move |s| {
         let current_gen = s.active_generation()?;
         let new_gen = current_gen + 1;
-        let new_authority = rust_service::keys::generate_new(&format!("auditor-gen-{new_gen}"))?;
-        let new_elgamal =
-            solana_zk_sdk::encryption::elgamal::ElGamalKeypair::new_from_signer_legacy(
-                &new_authority,
-                &s.mint.pubkey().to_bytes(),
-            )
-            .map_err(|e| anyhow!("derive new auditor ElGamal keypair: {e}"))?;
+        let key_name = setup::auditor_key_name(new_gen);
+
+        // Refuse up front if a file for the next generation somehow exists:
+        // better to stop here than to rotate on-chain and then be unable to
+        // record which key the chain now points at.
+        if keys::exists(&key_name)? {
+            return Err(anyhow!(
+                "keypair file for {key_name} already exists; refusing to rotate over it"
+            ));
+        }
+
+        // Generate in memory, commit on-chain, and only then persist. If the
+        // RPC step fails nothing is left on disk, so the next attempt starts
+        // clean instead of dying on "keypair file already exists".
+        let new_authority = Keypair::new();
+        let new_elgamal = keys::derive_auditor_elgamal(&new_authority, &s.mint.pubkey())?;
 
         mint::rotate_auditor_key(
             &s.rpc,
@@ -721,15 +752,30 @@ async fn auditor_rotate_handler(
             s.mint_authority.as_ref(),
             &new_elgamal,
         )
-        .await
         .map_err(|e| anyhow!("rotate_auditor_key failed: {e}"))?;
 
-        setup::set_active_auditor_generation(new_gen).map_err(|e| anyhow!("{e}"))?;
-        s.registry.rotate(
-            new_gen,
-            hex::encode(new_elgamal.pubkey().to_string()),
-            now_ms(),
-        )?;
+        // The chain now points at the new key. Everything from here on is
+        // local bookkeeping; if any of it fails the error message carries
+        // the new key's bytes so the generation can be reconstructed by hand
+        // rather than lost.
+        let recover = |what: &str, e: anyhow::Error| {
+            anyhow!(
+                "auditor key rotated on-chain to generation {new_gen} but {what} failed: {e}. \
+                 Recover by writing {} to {key_name}.json in the keys directory.",
+                serde_json::to_string(&new_authority.to_bytes().to_vec()).unwrap_or_default()
+            )
+        };
+        keys::persist_new(&key_name, &new_authority)
+            .map_err(|e| recover("saving its keypair", e))?;
+        setup::set_active_auditor_generation(new_gen)
+            .map_err(|e| recover("updating the active-generation pointer", anyhow!("{e}")))?;
+        s.registry
+            .rotate(
+                new_gen,
+                hex::encode(new_elgamal.pubkey().to_string()),
+                now_ms(),
+            )
+            .map_err(|e| recover("updating the generation registry", e))?;
 
         read_state(&s, &roles)
     })
@@ -737,29 +783,18 @@ async fn auditor_rotate_handler(
     Ok(Json(response))
 }
 
-/// Run a non-Send async closure on the blocking pool with its own
-/// multi-threaded runtime. The confidential-transfer operation functions take
-/// `&dyn Signer` and hold it across `.await` points; `dyn Signer` has no
-/// `Send`/`Sync` supertrait bound, so the resulting future isn't `Send` and
-/// can't run directly as an axum handler future (which axum requires to be
-/// `Send`). Multi-threaded is required because the Solana RPC client calls
-/// `block_in_place` internally, which panics on a current-thread runtime.
-async fn run_blocking<F, Fut, T>(s: AppState, f: F) -> Result<T>
+/// Run a synchronous operation on tokio's blocking pool. Every operation
+/// module uses the blocking Solana RPC client (and proof generation is CPU
+/// work in its own right), so this keeps them off the async worker threads
+/// that serve other requests.
+async fn run_blocking<F, T>(s: AppState, f: F) -> Result<T>
 where
-    F: FnOnce(AppState) -> Fut + Send + 'static,
-    Fut: std::future::Future<Output = Result<T>>,
+    F: FnOnce(AppState) -> Result<T> + Send + 'static,
     T: Send + 'static,
 {
-    tokio::task::spawn_blocking(move || {
-        let rt = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(2)
-            .enable_all()
-            .build()
-            .map_err(|e| anyhow!("build runtime: {e}"))?;
-        rt.block_on(f(s))
-    })
-    .await
-    .map_err(|e| anyhow!("blocking join: {e}"))?
+    tokio::task::spawn_blocking(move || f(s))
+        .await
+        .map_err(|e| anyhow!("blocking join: {e}"))?
 }
 
 async fn auditor_disclose_handler(
@@ -769,7 +804,11 @@ async fn auditor_disclose_handler(
 ) -> ApiResult<serde_json::Value> {
     let roles = s.auth.roles_for(&headers, now_ms());
     auth::require_auditor(&roles).map_err(AppError::unauthorized)?;
+    let response = run_blocking(s, move |s| disclose(&s, &roles, body)).await?;
+    Ok(Json(response))
+}
 
+fn disclose(s: &AppState, roles: &[Role], body: DiscloseBody) -> Result<serde_json::Value> {
     let activity = s
         .activity
         .find(&body.activity_id)
@@ -784,8 +823,7 @@ async fn auditor_disclose_handler(
             return Err(anyhow!(
                 "activity {} has no captured auditor ciphertext",
                 body.activity_id
-            )
-            .into())
+            ))
         }
     };
 
@@ -820,11 +858,11 @@ async fn auditor_disclose_handler(
     };
     s.disclosures.append(record.clone())?;
 
-    Ok(Json(serde_json::json!({
+    Ok(serde_json::json!({
         "ok": true,
         "disclosure": record,
-        "state": read_state(&s, &roles)?,
-    })))
+        "state": read_state(s, roles)?,
+    }))
 }
 
 // ============================================================================
@@ -913,6 +951,12 @@ fn read_state(s: &AppState, roles: &[Role]) -> Result<StateResponse> {
         Vec::new()
     };
 
+    // Read the confidential-transfer configuration off the mint itself rather
+    // than restating what bootstrap intended, so the UI reports what the
+    // chain actually says.
+    let mint_config = mint::read_confidential_mint_config(&s.rpc, &s.mint.pubkey())
+        .map_err(|e| anyhow!("read mint config: {e}"))?;
+
     Ok(StateResponse {
         ok: true,
         mint: MintView {
@@ -921,11 +965,15 @@ fn read_state(s: &AppState, roles: &[Role]) -> Result<StateResponse> {
             symbol: "TOKEN-X".to_string(),
             decimals: DECIMALS,
             program_id: spl_token_2022::id().to_string(),
-            zk_proof_program_id: "ZkE1Gama1Proof11111111111111111111111111111".to_string(),
-            confidential_transfer_authority: s.mint_authority.pubkey().to_string(),
+            zk_proof_program_id: configure::ZK_PROOF_PROGRAM_ID.to_string(),
+            confidential_transfer_authority: mint_config
+                .authority
+                .map(|p| p.to_string())
+                .unwrap_or_default(),
+            fee_payer: s.payer.pubkey().to_string(),
             extensions: vec!["ConfidentialTransferMint".to_string()],
-            auto_approve_new_accounts: true,
-            cluster: "devnet".to_string(),
+            auto_approve_new_accounts: mint_config.auto_approve_new_accounts,
+            cluster: setup::cluster_label(&s.rpc_url).to_string(),
         },
         total_supply: base_to_ui(supply),
         balances,
@@ -955,5 +1003,43 @@ fn to_balance_view(
             ciphertext: v.pending_ciphertext_fingerprint.clone(),
             decrypted: reveal.then(|| base_to_ui(v.pending)),
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ui_to_base_scales_by_decimals() {
+        assert_eq!(ui_to_base(1.0).unwrap(), 100);
+        assert_eq!(ui_to_base(0.01).unwrap(), 1);
+        assert_eq!(ui_to_base(12.345).unwrap(), 1235);
+    }
+
+    #[test]
+    fn ui_to_base_rejects_non_positive_and_non_finite() {
+        for bad in [
+            0.0,
+            -1.0,
+            -0.001,
+            f64::NAN,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+        ] {
+            assert!(ui_to_base(bad).is_err(), "{bad} should be rejected");
+        }
+    }
+
+    #[test]
+    fn ui_to_base_rejects_sub_unit_and_oversized_amounts() {
+        assert!(ui_to_base(0.001).is_err());
+        assert!(ui_to_base(MAX_UI_AMOUNT * 2.0).is_err());
+        assert!(ui_to_base(MAX_UI_AMOUNT).is_ok());
+    }
+
+    #[test]
+    fn base_to_ui_round_trips() {
+        assert_eq!(base_to_ui(ui_to_base(42.5).unwrap()), 42.5);
     }
 }
