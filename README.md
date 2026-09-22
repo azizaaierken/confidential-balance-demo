@@ -1,25 +1,46 @@
 # Confidential Balance Demo
 
-A demo of Solana Token-2022 **Confidential Transfers** in the style of a
-bank operations console: a Next.js frontend backed by a real Rust service that mints,
-deposits, transfers, applies pending balances, withdraws, and handles
-per-transfer auditor disclosure and auditor-key rotation on **Solana
-devnet**.
+A reference demo of Solana Token-2022 **Confidential Transfers** for a
+bank-style operations console: a Next.js frontend backed by a Rust service
+that mints, deposits, transfers, applies pending balances, withdraws, and
+handles per-transfer auditor disclosure and auditor-key rotation on
+**Solana devnet**.
 
-Every signing key (payer, mint authority, sender, receiver, auditor
-generations) lives only in the Rust service — the browser never holds a key
-or a secret.
+> **Devnet only. Demo keys. Not production code.** Every signing key (payer,
+> mint authority, both personas, every auditor generation) is a plain
+> keypair file held by the Rust service, standing in for wallets, HSMs and an
+> auditor's key custody. The point of the demo is the protocol flow and what
+> each party can and cannot see, not the key management around it.
 
-See [`CONFIDENTIAL_BALANCE_DEMO_REQUIREMENTS.md`](./CONFIDENTIAL_BALANCE_DEMO_REQUIREMENTS.md)
-for the full product/requirements spec this demo implements.
+## What it shows
+
+- **Confidential balances** on a Token-2022 mint with the
+  `ConfidentialTransferMint` extension: public, pending and available
+  balance states, and why pending funds must be applied before they spend.
+- **A confidential transfer** as one V1 (SIMD-0385) transaction carrying the
+  equality, ciphertext-validity and range proofs inline, with the exact
+  transaction simulated on devnet before it is signed.
+- **Deposits, withdrawals and minting** as public movements, labelled as such.
+- **Per-transfer auditor disclosure**: the auditor's ElGamal ciphertext of
+  each transfer amount is captured at transfer time and can be decrypted
+  later with the matching auditor key generation, one transfer at a time.
+  Decryption with the wrong generation fails safely.
+- **Auditor key rotation**, with retired generations kept so historical
+  transfers stay disclosable.
+- **Role-based visibility** enforced server-side: a session unlocks as the
+  sender, the receiver, the auditor, or any combination, and the backend
+  redacts everything that combination is not entitled to see.
 
 ## Structure
 
-- [`rust-service/`](./rust-service) — Axum HTTP service wrapping Token-2022
-  confidential-transfer operations (`spl-token-2022`, `spl-token-client`,
-  `solana-zk-sdk`). Owns every keypair and talks to devnet directly.
+- [`rust-service/`](./rust-service) — Axum HTTP service wrapping the
+  Token-2022 confidential-transfer operations (`spl-token-2022-interface`,
+  `spl-token-confidential-transfer-proof-generation`, `solana-zk-sdk`).
+  Owns every keypair, talks to devnet directly, and keeps a local activity
+  and disclosure log.
 - [`app/`](./app) — Next.js console (dashboard, per-account view, audit
-  console, agent-payment demo) that drives the service over plain `fetch`.
+  console; English, Simplified and Traditional Chinese) that drives the
+  service over plain `fetch`.
 
 ## Running locally
 
@@ -28,30 +49,41 @@ for the full product/requirements spec this demo implements.
 ```bash
 cd rust-service
 cargo run --bin bootstrap   # one-shot: generates keys, airdrops the payer,
-                             # creates the confidential mint, configures both
-                             # personas' token accounts. Safe to re-run.
-cargo run --bin server      # serves the HTTP API on :8787 (override with PORT)
+                            # creates the confidential mint, configures both
+                            # personas' token accounts. Safe to re-run.
+cargo run --bin server      # serves the HTTP API on :8787
 ```
 
-This generates local keypairs under `rust-service/keys/` and a local
-activity/disclosure log under `rust-service/data/` — both gitignored, since
-they're per-environment runtime state, not source. Delete them to start over
-with a fresh mint and fresh personas.
+This creates keypair files under `rust-service/keys/` and the local
+activity/disclosure log under `rust-service/data/`. Both are gitignored
+runtime state; delete them to start over with a fresh mint and fresh
+personas.
 
-By default the service points at `https://api.devnet.solana.com`; override
-with `SOLANA_RPC_URL` if you have your own devnet endpoint.
+Configuration is by environment variable; see
+[`rust-service/.env.example`](./rust-service/.env.example) for the full list.
+The public devnet RPC endpoint is rate-limited, so a dedicated devnet URL in
+`SOLANA_RPC_URL` makes the demo noticeably smoother.
 
 #### Demo passwords
 
 Owner and auditor actions (send/deposit/withdraw, per-transfer disclosure,
-auditor-key rotation) require unlocking with one of these — printed to the
-server's log at startup, and reproduced here so you don't have to go look:
+auditor-key rotation) require unlocking with one of these. The defaults are
+printed to the server log at startup:
 
 | Role | Password | Override via |
 |---|---|---|
 | Sender owner | `sender-demo` | `OWNER_SENDER_PASSWORD` |
 | Receiver owner | `receiver-demo` | `OWNER_RECEIVER_PASSWORD` |
 | Auditor | `auditor-demo` | `AUDITOR_PASSWORD` |
+
+#### Key derivation
+
+The ElGamal and AES keys that encrypt a persona's confidential balance are
+never stored. They are derived on every use from the persona's Ed25519
+signature using `solana-zk-sdk`'s current HKDF-SHA512 scheme. Accounts
+provisioned before that migration used a different derivation and cannot be
+decrypted under the new one; if you have such a `keys/` directory, run the
+service with `LEGACY_KDF=1`. A fresh clone never needs it.
 
 ### 2. Frontend (`app/`)
 
@@ -62,6 +94,43 @@ pnpm dev                    # serves the console on :3000
 ```
 
 The frontend calls the backend at `http://localhost:8787` by default;
-override with `NEXT_PUBLIC_BACKEND_URL` if the service runs elsewhere.
+override with `NEXT_PUBLIC_BACKEND_URL` (see
+[`app/.env.example`](./app/.env.example)).
 
 Open [http://localhost:3000](http://localhost:3000) once both are running.
+
+## Checks
+
+The CI workflow in [`.github/workflows/ci.yml`](./.github/workflows/ci.yml)
+runs the same commands:
+
+```bash
+# rust-service/
+cargo fmt --all --check
+cargo clippy --all-targets -- -D warnings
+cargo test                  # unit tests: key derivation, auth, amount parsing
+
+# app/
+pnpm lint
+pnpm test                   # vitest: i18n parity, redaction, permissions
+pnpm build
+pnpm typecheck
+```
+
+`cargo run --bin spike` runs a full mint → deposit → transfer → withdraw →
+disclose round trip against devnet. It spends devnet SOL and mutates the
+demo accounts, so it is a binary rather than a test.
+
+## Deliberate simplifications
+
+These are choices, not oversights, and each has an obvious production
+counterpart:
+
+- **Keys on the server.** Personas sign with keypair files the service
+  holds. Production needs wallet-approved signing per party.
+- **Password auth.** One password per role, exchanged for an in-memory
+  bearer token. Production needs real identity.
+- **The service pays every fee** from its own payer keypair, and the UI says
+  so. Production would have each party pay or a bank sponsor explicitly.
+- **Local JSON logs** stand in for an indexer or a database.
+- **Devnet only.** Nothing here has been run against mainnet.

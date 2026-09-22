@@ -1,1 +1,7 @@
 .DS_Store
+
+# Client-scoped requirements doc: kept locally, not part of the shared repo.
+CONFIDENTIAL_BALANCE_DEMO_REQUIREMENTS.md
+
+# Per-machine Claude Code permissions.
+.claude/settings.local.json
