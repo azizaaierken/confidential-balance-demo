@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import { clsx } from "clsx";
 import { Eye, Loader2, Unlock } from "lucide-react";
 import { useDemoStore } from "@/store/demo-store";
@@ -14,16 +13,11 @@ export function RoleSwitcher({ accountId }: { accountId: "sender" | "receiver" }
   const c = useCopy();
   const isOwner = useDemoStore((s) => s.viewRoles[accountId]);
   const setViewRole = useDemoStore((s) => s.setViewRole);
-  const [loading, setLoading] = useState(false);
+  const loading = useDemoStore((s) => s.loadingViewRoles[accountId]);
 
-  async function choose(owner: boolean) {
+  function choose(owner: boolean) {
     if (isOwner === owner || loading) return;
-    setLoading(true);
-    try {
-      await setViewRole(accountId as ViewRole, owner);
-    } finally {
-      setLoading(false);
-    }
+    void setViewRole(accountId as ViewRole, owner);
   }
 
   const options: { owner: boolean; label: string; icon: React.ElementType }[] = [
@@ -43,7 +37,7 @@ export function RoleSwitcher({ accountId }: { accountId: "sender" | "receiver" }
           key={String(owner)}
           role="radio"
           aria-checked={isOwner === owner}
-          onClick={() => void choose(owner)}
+          onClick={() => choose(owner)}
           aria-busy={loading && isOwner === owner}
           className={clsx(
             "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",

@@ -58,6 +58,23 @@ describe("refresh failures", () => {
     expect(useDemoStore.getState().viewRoles.auditor).toBe(true);
     expect(useDemoStore.getState().backendError).toBeNull();
     expect(useDemoStore.getState().network).toBe("degraded");
+    expect(useDemoStore.getState().loadingViewRoles.auditor).toBe(false);
+  });
+
+  it("marks a role as loading only while its data is in flight", async () => {
+    vi.spyOn(backend, "fetchState").mockResolvedValueOnce(emptyState);
+    await useDemoStore.getState().hydrate();
+
+    let resolve!: (s: backend.BackendState) => void;
+    vi.spyOn(backend, "fetchState").mockReturnValueOnce(
+      new Promise<backend.BackendState>((r) => (resolve = r))
+    );
+    const switching = useDemoStore.getState().setViewRole("sender", true);
+    expect(useDemoStore.getState().viewRoles.sender).toBe(true);
+    expect(useDemoStore.getState().loadingViewRoles.sender).toBe(true);
+    resolve(emptyState);
+    await switching;
+    expect(useDemoStore.getState().loadingViewRoles.sender).toBe(false);
   });
 
   it("an older read landing after a newer one is ignored", async () => {

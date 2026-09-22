@@ -27,6 +27,10 @@ interface DemoState {
   // redacts confidential fields and disclosure records for whatever is off
   // (see rust-service/src/auth.rs). A demo switch, not a credential.
   viewRoles: backend.ViewRoles;
+  // Roles whose switch is on but whose data has not arrived yet. The UI
+  // shows a loading state for those fields instead of the public view's
+  // mask, so a switch and its numbers read as one change.
+  loadingViewRoles: backend.ViewRoles;
 
   backendReady: boolean;
   backendError: string | null;
@@ -145,6 +149,7 @@ export const useDemoStore = create<DemoState>((set, get) => ({
   auditorKeyGenerations: [],
   auditDisclosures: [],
   viewRoles: backend.NO_ROLES,
+  loadingViewRoles: backend.NO_ROLES,
   backendReady: false,
   backendError: null,
 
@@ -199,7 +204,11 @@ export const useDemoStore = create<DemoState>((set, get) => ({
     // same tick, and switching on reveals nothing by itself — confidential
     // fields stay masked until the backend's decrypted values arrive, because
     // the UI keys masking off `decrypted === null`, not off the switch.
-    set((s) => ({ viewRoles: roles, ...redactForRoles(s.balances, s.activity, roles) }));
+    set((s) => ({
+      viewRoles: roles,
+      loadingViewRoles: { ...s.loadingViewRoles, [role]: on },
+      ...redactForRoles(s.balances, s.activity, roles),
+    }));
     const ticket = takeReadTicket();
     try {
       const state = await backend.fetchState(roles);
@@ -211,6 +220,8 @@ export const useDemoStore = create<DemoState>((set, get) => ({
       // the next read — a retry click or any action — refreshes it.
       if (!isLatest(ticket)) return;
       set({ network: "degraded" });
+    } finally {
+      set((s) => ({ loadingViewRoles: { ...s.loadingViewRoles, [role]: false } }));
     }
   },
 

@@ -1,4 +1,4 @@
-import { ArrowDownLeft, ArrowUpRight, RefreshCw, Lock, Coins } from "lucide-react";
+import { ArrowDownLeft, ArrowUpRight, RefreshCw, Lock, Coins, Loader2 } from "lucide-react";
 import { ActivityEntry, Role } from "@/lib/types";
 import { StatusBadge, PrivacyBadge } from "@/components/ui/badge";
 import { findPersona } from "@/lib/entities";
@@ -20,10 +20,12 @@ export function ActivityRow({
   entry,
   role,
   ownerAccountId,
+  loading = false,
 }: {
   entry: ActivityEntry;
   role: Role;
   ownerAccountId: string;
+  loading?: boolean;
 }) {
   const c = useCopy();
   const Icon = TYPE_ICON[entry.type];
@@ -63,6 +65,11 @@ export function ActivityRow({
           canSee && entry.partyVisibleAmount != null ? (
             <p className="text-sm font-semibold text-ink-900">
               {formatAmount(entry.partyVisibleAmount)} {MINT.symbol}
+            </p>
+          ) : canSee && loading ? (
+            <p aria-busy="true" className="flex items-center justify-end gap-2 text-ink-400">
+              <Loader2 size={12} className="animate-spin motion-reduce:animate-none" />
+              <span className="h-4 w-16 animate-pulse rounded bg-ink-900/10 motion-reduce:animate-none" />
             </p>
           ) : (
             <p className="flex items-center justify-end gap-1 text-sm font-medium text-ink-400">

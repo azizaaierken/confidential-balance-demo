@@ -10,10 +10,13 @@ export function ActivityList({
   entries,
   role,
   ownerAccountId,
+  loading = false,
 }: {
   entries: ActivityEntry[];
   role: Role;
   ownerAccountId: string;
+  // Owner view is on but its amounts have not arrived yet.
+  loading?: boolean;
 }) {
   const c = useCopy();
   const { paged, ...pagination } = usePagination(entries);
@@ -25,7 +28,7 @@ export function ActivityList({
   return (
     <div>
       {paged.map((entry) => (
-        <ActivityRow key={entry.id} entry={entry} role={role} ownerAccountId={ownerAccountId} />
+        <ActivityRow key={entry.id} entry={entry} role={role} ownerAccountId={ownerAccountId} loading={loading} />
       ))}
       {pagination.showControls && (
         <PaginationControls

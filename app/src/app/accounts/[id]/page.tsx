@@ -34,6 +34,7 @@ export default function AccountDetailPage({
   const activity = useDemoStore((s) => s.activity);
   const applyPending = useDemoStore((s) => s.applyPending);
   const viewRoles = useDemoStore((s) => s.viewRoles);
+  const loadingViewRoles = useDemoStore((s) => s.loadingViewRoles);
 
   const [sendOpen, setSendOpen] = useState(false);
   const [depositOpen, setDepositOpen] = useState(false);
@@ -49,6 +50,7 @@ export default function AccountDetailPage({
   }, [id, ownerAccountId, setOwnerAccountId]);
 
   const isOwnerHere = id === "sender" || id === "receiver" ? viewRoles[id] : false;
+  const loadingHere = id === "sender" || id === "receiver" ? loadingViewRoles[id] : false;
   const role: Role = isOwnerHere ? "owner" : "public";
 
   // A transfer's amount reaches this session whenever *either* party's view
@@ -134,6 +136,7 @@ export default function AccountDetailPage({
               suffix={MINT.symbol}
               privacy="owner-only"
               locked={!canSeeConfidential}
+              loading={isOwnerHere && loadingHere}
             />
             <BalanceRow
               label={c.dashboard.pendingConfidential}
@@ -141,6 +144,7 @@ export default function AccountDetailPage({
               suffix={MINT.symbol}
               privacy="owner-only"
               locked={!canSeeConfidential}
+              loading={isOwnerHere && loadingHere}
               accent="warning"
             />
           </Card>
@@ -183,7 +187,7 @@ export default function AccountDetailPage({
 
         <Card>
           <CardHeader title={c.accountDetail.activityTitle} subtitle={c.accountDetail.activitySubtitle} />
-          <ActivityList entries={scopedActivity} role={role} ownerAccountId={id} />
+          <ActivityList entries={scopedActivity} role={role} ownerAccountId={id} loading={isOwnerHere && loadingHere} />
         </Card>
       </main>
 
