@@ -29,11 +29,12 @@
   --color-warning-500: #d97706;
   --color-warning-600: #b45309;
 
-  /* Persona accent for the receiver; green stays reserved for status. */
-  --color-pink-50: #fdf2f8;
-  --color-pink-100: #fce7f3;
-  --color-pink-500: #db2777;
-  --color-pink-600: #be185d;
+  /* Persona accent for the receiver: a cool blue against the sender's
+     yellow. Green stays reserved for status, purple for the auditor. */
+  --color-sky-50: #f0f9ff;
+  --color-sky-100: #e0f2fe;
+  --color-sky-500: #0284c7;
+  --color-sky-600: #0369a1;
 
   --color-danger-50: #fef2f2;
   --color-danger-100: #fee2e2;
