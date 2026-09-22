@@ -164,20 +164,20 @@ export default function AccountDetailPage({
           </div>
         </div>
 
-        {canSeeConfidential && (
-          <div className="flex items-start gap-3 rounded-xl border border-warning-100 bg-warning-50 px-4 py-3 text-sm text-warning-600">
+        {/* Only when there is actually something to apply: an owner with a
+            zero pending balance has nothing to do here. */}
+        {canSeeConfidential && hasPending && (
+          <div className="flex items-start gap-3 rounded-xl border border-brand-100 bg-brand-50 px-4 py-3 text-sm text-brand-700">
             <ArrowDownCircle size={18} className="mt-0.5 shrink-0" />
             <div>
               <p className="font-medium">{c.accountDetail.applyPendingNote}</p>
-              <p className="mt-0.5 text-warning-600/90">{c.accountDetail.applyPendingDetail}</p>
+              <p className="mt-0.5 text-brand-700/90">{c.accountDetail.applyPendingDetail}</p>
             </div>
-            {hasPending && (
-              <Button size="sm" className="ml-auto shrink-0" disabled={applying} onClick={handleApply}>
-                {applying
-                  ? c.accountDetail.applying
-                  : c.accountDetail.applyButton(formatAmount(bal.confidentialPending.decrypted ?? 0), MINT.symbol)}
-              </Button>
-            )}
+            <Button size="sm" className="ml-auto shrink-0" disabled={applying} onClick={handleApply}>
+              {applying
+                ? c.accountDetail.applying
+                : c.accountDetail.applyButton(formatAmount(bal.confidentialPending.decrypted ?? 0), MINT.symbol)}
+            </Button>
           </div>
         )}
 
