@@ -1,5 +1,0 @@
-/target
-/keys
-/data
-.env*
-!.env.example

@@ -6,45 +6,23 @@ on:
   pull_request:
 
 jobs:
-  backend:
-    name: rust-service
+  console:
+    name: console
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: rust-service
+        working-directory: console
     steps:
       - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: oven-sh/setup-bun@v2
         with:
-          components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: rust-service
-      - run: cargo fmt --all --check
-      - run: cargo clippy --all-targets -- -D warnings
-      - run: cargo test
-
-  frontend:
-    name: app
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: app
-    steps:
-      - uses: actions/checkout@v6
-      - uses: pnpm/action-setup@v6
-        with:
-          # Reads the pinned `packageManager` version; the action looks in
-          # the repo root by default, not this job's working directory.
-          package_json_file: app/package.json
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: app/pnpm-lock.yaml
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm lint
-      - run: pnpm test
-      # `next build` regenerates the route types tsc needs, so it runs first.
-      - run: pnpm build
-      - run: pnpm typecheck
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bun run check
+      - run: bun run test
+      - run: bun run build
+      # The platform builds with this base path; a link or asset that is not
+      # `base`-prefixed only breaks there, so build it in CI too.
+      - run: bun run build
+        env:
+          BASE_PATH: /confidential-balances

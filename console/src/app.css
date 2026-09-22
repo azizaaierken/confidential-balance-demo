@@ -1,0 +1,73 @@
+@import 'tailwindcss';
+
+@theme {
+	--color-canvas: #f5f5f9;
+	--color-surface: #ffffff;
+	--color-sidebar: #fbfbfd;
+	--color-border-subtle: #e6e6f0;
+	--color-border-strong: #d4d4e4;
+
+	--color-ink-900: #16161f;
+	--color-ink-700: #34344a;
+	--color-ink-600: #4c4c66;
+	--color-ink-500: #64647c;
+	--color-ink-400: #8a8aa0;
+
+	--color-brand-50: #f5f0fe;
+	--color-brand-100: #eae0fd;
+	--color-brand-200: #d6c4fb;
+	--color-brand-500: #7c3aed;
+	--color-brand-600: #6d28d9;
+	--color-brand-700: #5b21b6;
+
+	--color-success-50: #ecfdf3;
+	--color-success-100: #d4f7e0;
+	--color-success-500: #16a34a;
+	--color-success-600: #15803d;
+
+	--color-warning-50: #fffbeb;
+	--color-warning-100: #fef0c7;
+	--color-warning-500: #d97706;
+	--color-warning-600: #b45309;
+
+	/* Persona accent for the receiver: a cool blue against the sender's
+	   yellow. Green stays reserved for status, purple for the auditor. */
+	--color-sky-50: #f0f9ff;
+	--color-sky-100: #e0f2fe;
+	--color-sky-500: #0284c7;
+	--color-sky-600: #0369a1;
+
+	--color-danger-50: #fef2f2;
+	--color-danger-100: #fee2e2;
+	--color-danger-500: #dc2626;
+	--color-danger-600: #b91c1c;
+
+	--font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+	--font-mono: 'SFMono-Regular', ui-monospace, Menlo, Consolas, monospace;
+}
+
+html,
+body {
+	height: 100%;
+}
+
+body {
+	background: var(--color-canvas);
+	color: var(--color-ink-900);
+	font-family: var(--font-sans);
+	-webkit-font-smoothing: antialiased;
+}
+
+* {
+	scrollbar-width: thin;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.001ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.001ms !important;
+	}
+}
