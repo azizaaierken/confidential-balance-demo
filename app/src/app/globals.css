@@ -29,6 +29,12 @@
   --color-warning-500: #d97706;
   --color-warning-600: #b45309;
 
+  /* Persona accent for the receiver; green stays reserved for status. */
+  --color-pink-50: #fdf2f8;
+  --color-pink-100: #fce7f3;
+  --color-pink-500: #db2777;
+  --color-pink-600: #be185d;
+
   --color-danger-50: #fef2f2;
   --color-danger-100: #fee2e2;
   --color-danger-500: #dc2626;

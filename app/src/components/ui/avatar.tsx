@@ -1,11 +1,12 @@
 import { clsx } from "clsx";
 
 // Each persona has a fixed colour so it reads the same everywhere: the
-// sender is yellow, the receiver green. Purple is kept for the auditor
-// console and interactive controls. Anything else falls back to neutral.
+// sender is yellow, the receiver pink. Purple is kept for the auditor
+// console and interactive controls, green for "confirmed" status. Anything
+// else falls back to neutral.
 const PERSONA_COLOR: Record<string, string> = {
   sender: "bg-warning-100 text-warning-600",
-  receiver: "bg-success-100 text-success-600",
+  receiver: "bg-pink-100 text-pink-600",
 };
 const FALLBACK_COLOR = "bg-ink-900/5 text-ink-700";
 
