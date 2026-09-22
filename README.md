@@ -45,8 +45,8 @@ with `SOLANA_RPC_URL` if you have your own devnet endpoint.
 
 ```bash
 cd app
-npm install
-npm run dev                 # serves the console on :3000
+pnpm install
+pnpm dev                    # serves the console on :3000
 ```
 
 The frontend calls the backend at `http://localhost:8787` by default;
