@@ -15,7 +15,7 @@ import { useDemoStore } from "@/store/demo-store";
 import { PERSONAS, MINT } from "@/lib/entities";
 import { formatAmount, shortenAddress } from "@/lib/format";
 import { Coins, RefreshCw, KeyRound } from "lucide-react";
-import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useCopy } from "@/lib/i18n/use-copy";
 
 // The Console never grants owner authority — it's a permanent public-observer
@@ -25,7 +25,6 @@ const CONSOLE_ROLE = "public" as const;
 
 export default function DashboardPage() {
   const c = useCopy();
-  const router = useRouter();
   const balances = useDemoStore((s) => s.balances);
   const activity = useDemoStore((s) => s.activity);
   const totalSupply = useDemoStore((s) => s.totalSupply);
@@ -145,30 +144,33 @@ export default function DashboardPage() {
                 return (
                   <div
                     key={p.id}
-                    className="flex w-full items-center gap-3 border-b border-border-subtle px-5 py-4 last:border-b-0 hover:bg-canvas/60"
+                    className="flex w-full items-center gap-4 border-b border-border-subtle px-5 py-4 last:border-b-0 hover:bg-canvas/60"
                   >
-                    <button
-                      onClick={() => router.push(`/accounts/${p.id}`)}
-                      className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                    <Avatar initials={p.initials} seed={p.id} />
+                    <div className="flex min-w-0 flex-1 flex-col gap-1">
+                      <Link
+                        href={`/accounts/${p.id}`}
+                        className="truncate text-sm font-medium leading-5 text-ink-900 hover:text-brand-700"
+                      >
+                        {p.name}
+                      </Link>
+                      {/* The copy control sits on the line it copies. */}
+                      <span className="flex items-center gap-1 font-mono text-xs leading-5 text-ink-400">
+                        <span className="truncate">{shortenAddress(p.address)}</span>
+                        <CopyButton value={p.address} className="-my-1" />
+                      </span>
+                    </div>
+                    <Link
+                      href={`/accounts/${p.id}`}
+                      className="flex shrink-0 flex-col items-end gap-1 text-right"
                     >
-                      <Avatar initials={p.initials} seed={p.id} />
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium text-ink-900">{p.name}</p>
-                        <p className="truncate font-mono text-xs text-ink-400">
-                          {shortenAddress(p.address)}
-                        </p>
-                      </div>
-                    </button>
-                    <CopyButton value={p.address} />
-                    <button
-                      onClick={() => router.push(`/accounts/${p.id}`)}
-                      className="shrink-0 text-right"
-                    >
-                      <p className="text-sm font-semibold text-ink-900">
+                      <span className="text-sm font-semibold leading-5 text-ink-900">
                         {formatAmount(pb.publicBalance)} {MINT.symbol}
-                      </p>
-                      <PrivacyBadge variant="public" />
-                    </button>
+                      </span>
+                      <span className="flex h-5 items-center">
+                        <PrivacyBadge variant="public" />
+                      </span>
+                    </Link>
                   </div>
                 );
               })}
