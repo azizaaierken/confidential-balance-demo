@@ -13,7 +13,7 @@ jobs:
       run:
         working-directory: rust-service
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -31,9 +31,13 @@ jobs:
       run:
         working-directory: app
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+        with:
+          # Reads the pinned `packageManager` version; the action looks in
+          # the repo root by default, not this job's working directory.
+          package_json_file: app/package.json
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: pnpm
