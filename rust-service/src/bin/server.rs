@@ -82,6 +82,7 @@ struct AppState {
     activity: Arc<ActivityLog>,
     disclosures: Arc<DisclosureLog>,
     registry: Arc<AuditorRegistry>,
+    decrypt_cache: Arc<view::DecryptCache>,
 }
 
 impl AppState {
@@ -301,6 +302,7 @@ async fn main() -> Result<()> {
         activity,
         disclosures,
         registry,
+        decrypt_cache: Arc::new(view::DecryptCache::default()),
     };
 
     // Network exposure. There is no authentication (see auth.rs), so the
@@ -858,12 +860,6 @@ fn disclose(s: &AppState, roles: &[Role], body: DiscloseBody) -> Result<serde_js
 /// balances, and activity metadata only: no decrypted confidential amounts,
 /// no disclosed amounts, no disclosure records.
 fn read_state(s: &AppState, roles: &[Role]) -> Result<StateResponse> {
-    let sender_view =
-        view::read_account_view(&s.rpc, &s.mint.pubkey(), &s.sender).map_err(|e| anyhow!("{e}"))?;
-    let receiver_view = view::read_account_view(&s.rpc, &s.mint.pubkey(), &s.receiver)
-        .map_err(|e| anyhow!("{e}"))?;
-    let supply = mint::read_total_supply(&s.rpc, &s.mint.pubkey()).map_err(|e| anyhow!("{e}"))?;
-
     let sender_ata = rust_service::ata::get_associated_token_address_with_program_id(
         &s.sender.pubkey(),
         &s.mint.pubkey(),
@@ -874,6 +870,30 @@ fn read_state(s: &AppState, roles: &[Role]) -> Result<StateResponse> {
         &s.mint.pubkey(),
         &spl_token_2022::id(),
     );
+
+    // Everything /state needs from the chain is three accounts, so fetch
+    // them in one RPC round trip rather than four serial ones — against the
+    // public devnet endpoint that is the difference between a snappy view
+    // switch and a multi-second one.
+    let accounts = s
+        .rpc
+        .get_multiple_accounts(&[sender_ata, receiver_ata, s.mint.pubkey()])
+        .map_err(|e| anyhow!("rpc get_multiple_accounts: {e}"))?;
+    let [sender_acc, receiver_acc, mint_acc] = <[_; 3]>::try_from(accounts)
+        .map_err(|v: Vec<_>| anyhow!("expected 3 accounts, got {}", v.len()))?;
+    let mint_acc =
+        mint_acc.ok_or_else(|| anyhow!("mint {} not found on chain", s.mint.pubkey()))?;
+
+    let account_view = |acc: Option<solana_sdk::account::Account>, owner: &Keypair, ata| match acc {
+        Some(a) => view::decode_account_view(&a.data, owner, ata, &s.decrypt_cache)
+            .map_err(|e| anyhow!("{e}")),
+        None => Ok(view::AccountView::default()),
+    };
+    let sender_view = account_view(sender_acc, &s.sender, &sender_ata)?;
+    let receiver_view = account_view(receiver_acc, &s.receiver, &receiver_ata)?;
+    let supply = mint::decode_total_supply(&mint_acc.data).map_err(|e| anyhow!("{e}"))?;
+    let mint_config =
+        mint::decode_confidential_mint_config(&mint_acc.data).map_err(|e| anyhow!("{e}"))?;
 
     let show_sender = roles.contains(&Role::OwnerSender);
     let show_receiver = roles.contains(&Role::OwnerReceiver);
@@ -933,12 +953,9 @@ fn read_state(s: &AppState, roles: &[Role]) -> Result<StateResponse> {
         Vec::new()
     };
 
-    // Read the confidential-transfer configuration off the mint itself rather
-    // than restating what bootstrap intended, so the UI reports what the
-    // chain actually says.
-    let mint_config = mint::read_confidential_mint_config(&s.rpc, &s.mint.pubkey())
-        .map_err(|e| anyhow!("read mint config: {e}"))?;
-
+    // The confidential-transfer configuration comes off the mint itself
+    // rather than restating what bootstrap intended, so the UI reports what
+    // the chain actually says.
     Ok(StateResponse {
         ok: true,
         mint: MintView {

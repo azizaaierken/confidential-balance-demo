@@ -1,7 +1,8 @@
 "use client";
 
+import { useState } from "react";
 import { clsx } from "clsx";
-import { Eye, Unlock } from "lucide-react";
+import { Eye, Loader2, Unlock } from "lucide-react";
 import { useDemoStore } from "@/store/demo-store";
 import { useCopy } from "@/lib/i18n/use-copy";
 import type { ViewRole } from "@/lib/backend/client";
@@ -13,6 +14,17 @@ export function RoleSwitcher({ accountId }: { accountId: "sender" | "receiver" }
   const c = useCopy();
   const isOwner = useDemoStore((s) => s.viewRoles[accountId]);
   const setViewRole = useDemoStore((s) => s.setViewRole);
+  const [loading, setLoading] = useState(false);
+
+  async function choose(owner: boolean) {
+    if (isOwner === owner || loading) return;
+    setLoading(true);
+    try {
+      await setViewRole(accountId as ViewRole, owner);
+    } finally {
+      setLoading(false);
+    }
+  }
 
   const options: { owner: boolean; label: string; icon: React.ElementType }[] = [
     { owner: false, label: c.roleSwitcher.publicView, icon: Eye },
@@ -31,15 +43,18 @@ export function RoleSwitcher({ accountId }: { accountId: "sender" | "receiver" }
           key={String(owner)}
           role="radio"
           aria-checked={isOwner === owner}
-          onClick={() => {
-            if (isOwner !== owner) void setViewRole(accountId as ViewRole, owner);
-          }}
+          onClick={() => void choose(owner)}
+          aria-busy={loading && isOwner === owner}
           className={clsx(
             "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
             isOwner === owner ? "bg-brand-600 text-white" : "text-ink-700 hover:bg-ink-900/5"
           )}
         >
-          <Icon size={14} />
+          {loading && isOwner === owner ? (
+            <Loader2 size={14} className="animate-spin motion-reduce:animate-none" />
+          ) : (
+            <Icon size={14} />
+          )}
           {label}
         </button>
       ))}

@@ -118,6 +118,22 @@ function activeAuditorKeyGeneration(gens: AuditorKeyGeneration[]): AuditorKeyGen
   return active ?? gens[gens.length - 1];
 }
 
+// Every read of /state is a real devnet round trip, so several can be in
+// flight at once — the mount-time hydrate, a view switch, a relock. Without
+// ordering, an older request can land *after* a newer one and overwrite it
+// with stale visibility (seen as balances and the pending-funds panel
+// flickering off and on after switching to owner view). Each read takes a
+// ticket; only the newest ticket's result is applied. Action responses
+// (mint, deposit, …) also take a ticket so an older plain read can't clobber
+// the post-action state they return.
+let latestReadTicket = 0;
+function takeReadTicket(): number {
+  return ++latestReadTicket;
+}
+function isLatest(ticket: number): boolean {
+  return ticket === latestReadTicket;
+}
+
 export const useDemoStore = create<DemoState>((set, get) => ({
   ownerAccountId: SENDER.id,
   network: "connected",
@@ -144,10 +160,13 @@ export const useDemoStore = create<DemoState>((set, get) => ({
   },
 
   hydrate: async () => {
+    const ticket = takeReadTicket();
     try {
       const state = await backend.fetchState(get().viewRoles);
+      if (!isLatest(ticket)) return;
       set({ ...applyBackendState(state), backendReady: true, backendError: null });
     } catch (e) {
+      if (!isLatest(ticket)) return;
       set({ backendReady: false, backendError: e instanceof Error ? e.message : String(e) });
       throw e;
     }
@@ -166,22 +185,25 @@ export const useDemoStore = create<DemoState>((set, get) => ({
 
   setViewRole: async (role, on) => {
     const roles = { ...get().viewRoles, [role]: on };
-    if (on) {
-      // Fetch the newly visible state *before* flipping the switch, so the UI
-      // never shows the owner/auditor view for the moment before the
-      // now-visible data has actually arrived (two real devnet RPC reads
-      // happen inside /state) — switch and data land in one render.
+    // Flip the switch immediately so the click has a visible effect. This is
+    // safe in both directions: switching off redacts client-side state in the
+    // same tick, and switching on reveals nothing by itself — confidential
+    // fields stay masked until the backend's decrypted values arrive, because
+    // the UI keys masking off `decrypted === null`, not off the switch.
+    set((s) => ({ viewRoles: roles, ...redactForRoles(s.balances, s.activity, roles) }));
+    const ticket = takeReadTicket();
+    try {
       const state = await backend.fetchState(roles);
-      set({ viewRoles: roles, ...applyBackendState(state), backendReady: true, backendError: null });
-    } else {
-      set((s) => ({ viewRoles: roles, ...redactForRoles(s.balances, s.activity, roles) }));
-      await get().hydrate().catch(() => {
-        // surfaced via backendError already; switching a view off shouldn't throw further
-      });
+      if (!isLatest(ticket)) return;
+      set({ ...applyBackendState(state), backendReady: true, backendError: null });
+    } catch (e) {
+      if (!isLatest(ticket)) return;
+      set({ backendError: e instanceof Error ? e.message : String(e) });
     }
   },
 
   mintSupply: async (accountId, amount) => {
+    takeReadTicket();
     const { signature, state } = await backend.mintSupply(accountId, amount, get().viewRoles);
     set(applyBackendState(state));
     const entry = state.activity.find((a) => a.signature === signature);
@@ -190,6 +212,7 @@ export const useDemoStore = create<DemoState>((set, get) => ({
   },
 
   deposit: async (accountId, amount) => {
+    takeReadTicket();
     const { signature, state } = await backend.deposit(accountId, amount, get().viewRoles);
     set(applyBackendState(state));
     const entry = state.activity.find((a) => a.signature === signature);
@@ -198,6 +221,7 @@ export const useDemoStore = create<DemoState>((set, get) => ({
   },
 
   withdraw: async (accountId, amount) => {
+    takeReadTicket();
     const { signature, state } = await backend.withdraw(accountId, amount, get().viewRoles);
     set(applyBackendState(state));
     const entry = state.activity.find((a) => a.signature === signature);
@@ -206,6 +230,7 @@ export const useDemoStore = create<DemoState>((set, get) => ({
   },
 
   confidentialTransfer: async (fromId, toId, amount) => {
+    takeReadTicket();
     const { signature, state } = await backend.confidentialTransfer(
       fromId,
       toId,
@@ -219,11 +244,13 @@ export const useDemoStore = create<DemoState>((set, get) => ({
   },
 
   applyPending: async (accountId) => {
+    takeReadTicket();
     const { state } = await backend.applyPending(accountId, get().viewRoles);
     set(applyBackendState(state));
   },
 
   requestAuditDisclosure: async (activityId, requestedBy, reason, useKeyGenerationId) => {
+    takeReadTicket();
     const { disclosure, state } = await backend.requestAuditDisclosure(
       activityId,
       requestedBy,
@@ -236,6 +263,7 @@ export const useDemoStore = create<DemoState>((set, get) => ({
   },
 
   rotateAuditorKey: async () => {
+    takeReadTicket();
     const state = await backend.rotateAuditorKey(get().viewRoles);
     set(applyBackendState(state));
     return activeAuditorKeyGeneration(state.auditorKeyGenerations);

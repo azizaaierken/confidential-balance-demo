@@ -53,8 +53,12 @@ cd rust-service
 cargo run --bin bootstrap   # one-shot: generates keys, airdrops the payer,
                             # creates the confidential mint, configures both
                             # personas' token accounts. Safe to re-run.
-cargo run --bin server      # serves the HTTP API on :8787
+cargo run --release --bin server   # serves the HTTP API on :8787
 ```
+
+Run the server in release mode: proof generation and the ElGamal decryption
+behind every balance read are roughly an order of magnitude slower in a debug
+build, and that shows up directly as UI latency.
 
 This creates keypair files under `rust-service/keys/` and the local
 activity/disclosure log under `rust-service/data/`. Both are gitignored

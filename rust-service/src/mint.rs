@@ -61,7 +61,11 @@ pub fn read_confidential_mint_config(
     mint: &Pubkey,
 ) -> CtResult<ConfidentialMintConfig> {
     let data = client.get_account(mint)?;
-    let acc = StateWithExtensions::<Mint>::unpack(&data.data)?;
+    decode_confidential_mint_config(&data.data)
+}
+
+pub fn decode_confidential_mint_config(data: &[u8]) -> CtResult<ConfidentialMintConfig> {
+    let acc = StateWithExtensions::<Mint>::unpack(data)?;
     let ext = acc.get_extension::<ConfidentialTransferMint>()?;
     let authority: Option<Pubkey> = ext.authority.into();
     let auditor: Option<PodElGamalPubkey> = ext.auditor_elgamal_pubkey.into();
@@ -179,6 +183,10 @@ pub fn mint_additional_supply(
 /// changes it.
 pub fn read_total_supply(client: &RpcClient, mint: &Pubkey) -> CtResult<u64> {
     let data = client.get_account(mint)?;
-    let acc = StateWithExtensions::<Mint>::unpack(&data.data)?;
+    decode_total_supply(&data.data)
+}
+
+pub fn decode_total_supply(data: &[u8]) -> CtResult<u64> {
+    let acc = StateWithExtensions::<Mint>::unpack(data)?;
     Ok(acc.base.supply)
 }
