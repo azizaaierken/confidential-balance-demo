@@ -83,7 +83,7 @@ export default function AuditConsolePage() {
             title={c.audit.auditorViewHint}
           >
             <span className="flex items-center gap-1.5">
-              <ShieldCheck size={14} className={unlocked ? "text-success-500" : "text-ink-400"} />
+              <ShieldCheck size={14} className={unlocked ? "text-brand-600" : "text-ink-400"} />
               {c.audit.auditorViewLabel}
             </span>
             <button
@@ -345,9 +345,9 @@ function FullHistoryReconstruction({ unlocked }: { unlocked: boolean }) {
             history (and its conclusion) on screen. */}
         {unlocked && reconstructedFor === accountId && (
           <div className="flex flex-col gap-3">
-            <div className="rounded-xl border border-success-100 bg-success-50 p-4 text-sm text-success-600">
+            <div className="rounded-xl border border-brand-100 bg-brand-50 p-4 text-sm text-brand-700">
               <p className="font-medium">{c.audit.fullHistoryResultTitle}</p>
-              <p className="mt-1 text-success-600/90">
+              <p className="mt-1 text-brand-700/90">
                 {c.audit.fullHistoryResultNote(totalConfidentialTransfers)}
               </p>
             </div>
@@ -483,7 +483,7 @@ function KeyTimeline({
             className={clsx(
               "flex items-center justify-between gap-4 rounded-xl border px-4 py-3 text-sm",
               g.status === "active"
-                ? "border-success-100 bg-success-50"
+                ? "border-brand-100 bg-brand-50"
                 : "border-border-subtle bg-canvas/60"
             )}
           >
@@ -498,7 +498,7 @@ function KeyTimeline({
             <span
               className={clsx(
                 "rounded-full px-2 py-0.5 text-[11px] font-medium",
-                g.status === "active" ? "bg-success-50 text-success-600" : "bg-ink-900/5 text-ink-500"
+                g.status === "active" ? "bg-brand-100 text-brand-700" : "bg-ink-900/5 text-ink-500"
               )}
             >
               {g.status === "active" ? c.audit.statusActive : c.audit.statusRetired}
@@ -584,7 +584,7 @@ function DisclosureForm({
           </Button>
         </div>
       ) : latest.outcome === "success" ? (
-        <div className="rounded-lg border border-success-100 bg-success-50 p-3 text-sm text-success-600">
+        <div className="rounded-lg border border-brand-100 bg-brand-50 p-3 text-sm text-brand-700">
           {c.audit.decryptedAmountResult(
             `${formatAmount(latest.decryptedAmount)} ${MINT.symbol}`,
             latest.requestedBy,

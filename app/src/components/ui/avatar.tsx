@@ -1,16 +1,13 @@
 import { clsx } from "clsx";
 
-const PALETTE = [
-  "bg-brand-100 text-brand-700",
-  "bg-success-100 text-success-600",
-  "bg-warning-100 text-warning-600",
-];
-
-function paletteIndex(seed: string): number {
-  let hash = 0;
-  for (let i = 0; i < seed.length; i++) hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
-  return hash % PALETTE.length;
-}
+// Each persona has a fixed colour so it reads the same everywhere: the
+// sender is yellow, the receiver green. Purple is kept for the auditor
+// console and interactive controls. Anything else falls back to neutral.
+const PERSONA_COLOR: Record<string, string> = {
+  sender: "bg-warning-100 text-warning-600",
+  receiver: "bg-success-100 text-success-600",
+};
+const FALLBACK_COLOR = "bg-ink-900/5 text-ink-700";
 
 export function Avatar({
   initials,
@@ -28,7 +25,7 @@ export function Avatar({
       className={clsx(
         "inline-flex shrink-0 items-center justify-center rounded-full font-semibold",
         sizeClass,
-        PALETTE[paletteIndex(seed)]
+        PERSONA_COLOR[seed] ?? FALLBACK_COLOR
       )}
     >
       {initials}
