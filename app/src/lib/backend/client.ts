@@ -263,9 +263,23 @@ function mapState(raw: RawState): BackendState {
 
 // ---- Public API ----
 
+// Reading state is idempotent, and both the public devnet RPC behind the
+// backend and the local hop to it can fail transiently, so a read retries a
+// couple of times before it is reported as a failure. Actions (POST) are
+// never retried here: a transfer that timed out may still have landed.
 export async function fetchState(roles?: ViewRoles): Promise<BackendState> {
-  const raw = await request<RawState>("/state", undefined, roles);
-  return mapState(raw);
+  const attempts = 3;
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      const raw = await request<RawState>("/state", undefined, roles);
+      return mapState(raw);
+    } catch (e) {
+      lastError = e;
+      if (attempt < attempts) await new Promise((r) => setTimeout(r, 400 * attempt));
+    }
+  }
+  throw lastError;
 }
 
 export async function mintSupply(accountId: string, amount: number, roles?: ViewRoles) {

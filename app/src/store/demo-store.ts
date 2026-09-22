@@ -164,10 +164,19 @@ export const useDemoStore = create<DemoState>((set, get) => ({
     try {
       const state = await backend.fetchState(get().viewRoles);
       if (!isLatest(ticket)) return;
-      set({ ...applyBackendState(state), backendReady: true, backendError: null });
+      set({ ...applyBackendState(state), backendReady: true, backendError: null, network: "connected" });
     } catch (e) {
       if (!isLatest(ticket)) return;
-      set({ backendReady: false, backendError: e instanceof Error ? e.message : String(e) });
+      // Only the first connection gets the full-screen error: once the app
+      // has real state on screen, a failed refresh (public devnet dropping a
+      // request, most often) should leave that state up and flag the
+      // connection as degraded rather than replace everything with an
+      // error page.
+      if (get().backendReady) {
+        set({ network: "degraded" });
+      } else {
+        set({ backendReady: false, backendError: e instanceof Error ? e.message : String(e) });
+      }
       throw e;
     }
   },
@@ -195,10 +204,13 @@ export const useDemoStore = create<DemoState>((set, get) => ({
     try {
       const state = await backend.fetchState(roles);
       if (!isLatest(ticket)) return;
-      set({ ...applyBackendState(state), backendReady: true, backendError: null });
-    } catch (e) {
+      set({ ...applyBackendState(state), network: "connected" });
+    } catch {
+      // The switch stays where the user put it and the (still masked) data
+      // stays on screen; the sidebar shows the connection as degraded and
+      // the next read — a retry click or any action — refreshes it.
       if (!isLatest(ticket)) return;
-      set({ backendError: e instanceof Error ? e.message : String(e) });
+      set({ network: "degraded" });
     }
   },
 

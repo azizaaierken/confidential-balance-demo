@@ -875,10 +875,10 @@ fn read_state(s: &AppState, roles: &[Role]) -> Result<StateResponse> {
     // them in one RPC round trip rather than four serial ones — against the
     // public devnet endpoint that is the difference between a snappy view
     // switch and a multi-second one.
-    let accounts = s
-        .rpc
-        .get_multiple_accounts(&[sender_ata, receiver_ata, s.mint.pubkey()])
-        .map_err(|e| anyhow!("rpc get_multiple_accounts: {e}"))?;
+    let accounts = with_rpc_retry("get_multiple_accounts", || {
+        s.rpc
+            .get_multiple_accounts(&[sender_ata, receiver_ata, s.mint.pubkey()])
+    })?;
     let [sender_acc, receiver_acc, mint_acc] = <[_; 3]>::try_from(accounts)
         .map_err(|v: Vec<_>| anyhow!("expected 3 accounts, got {}", v.len()))?;
     let mint_acc =
@@ -980,6 +980,36 @@ fn read_state(s: &AppState, roles: &[Role]) -> Result<StateResponse> {
         activity,
         audit_disclosures,
     })
+}
+
+/// The public devnet endpoint drops or resets connections often enough that
+/// a read-only call failing once is not news. Retry transport-level failures
+/// a few times with a short backoff before giving up; the caller's request is
+/// a read, so repeating it is harmless.
+fn with_rpc_retry<T>(
+    what: &str,
+    mut call: impl FnMut() -> solana_client::client_error::Result<T>,
+) -> Result<T> {
+    const ATTEMPTS: u32 = 3;
+    let mut delay = std::time::Duration::from_millis(300);
+    let mut last_err = None;
+    for attempt in 1..=ATTEMPTS {
+        match call() {
+            Ok(v) => return Ok(v),
+            Err(e) => {
+                tracing::warn!("rpc {what} attempt {attempt}/{ATTEMPTS} failed: {e}");
+                last_err = Some(e);
+                if attempt < ATTEMPTS {
+                    std::thread::sleep(delay);
+                    delay *= 2;
+                }
+            }
+        }
+    }
+    Err(anyhow!(
+        "rpc {what} failed after {ATTEMPTS} attempts: {}",
+        last_err.expect("at least one attempt")
+    ))
 }
 
 fn to_balance_view(
