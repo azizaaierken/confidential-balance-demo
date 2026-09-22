@@ -11,7 +11,7 @@ const inter = Inter({
 export const metadata: Metadata = {
   title: "Confidential Balance Console — Demo",
   description:
-    "Educational demo of Solana Token-2022 Confidential Balances and a bank-hosted agent payment flow.",
+    "Educational demo of Solana Token-2022 Confidential Balances",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
